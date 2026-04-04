@@ -1,0 +1,107 @@
+<?php
+
+namespace App\Http\Controllers;
+
+use App\Models\Product;
+use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
+
+class ProductController extends Controller
+{
+    public function index(Request $request): JsonResponse
+    {
+        $query = Product::with('images')->where('is_active', true);
+
+        if ($request->filled('type')) {
+            $query->where('type', $request->type);
+        }
+        if ($request->filled('brand')) {
+            $query->where('brand', $request->brand);
+        }
+        if ($request->filled('season')) {
+            $query->where('season', $request->season);
+        }
+        if ($request->filled('search')) {
+            $s = $request->search;
+            $query->where(function ($q) use ($s) {
+                $q->where('brand', 'like', "%{$s}%")
+                  ->orWhere('name', 'like', "%{$s}%")
+                  ->orWhere('size', 'like', "%{$s}%")
+                  ->orWhere('sku', 'like', "%{$s}%");
+            });
+        }
+
+        // Filters are derived from the current (pre-pagination) result set
+        $filtersQuery = clone $query;
+        $filters = [
+            'brands'  => $filtersQuery->clone()->distinct()->orderBy('brand')->pluck('brand'),
+            'types'   => $filtersQuery->clone()->distinct()->orderBy('type')->pluck('type'),
+            'seasons' => $filtersQuery->clone()->distinct()->orderBy('season')->pluck('season'),
+        ];
+
+        match ($request->input('sort', 'newest')) {
+            'price_asc'  => $query->orderBy('price'),
+            'price_desc' => $query->orderByDesc('price'),
+            default      => $query->orderByDesc('created_at'),
+        };
+
+        $perPage = min((int) $request->input('per_page', 24), 100);
+        $paginated = $query->paginate($perPage);
+
+        $data = $paginated->map(fn ($p) => $this->formatProduct($p));
+
+        return response()->json([
+            'data'    => $data,
+            'meta'    => [
+                'current_page' => $paginated->currentPage(),
+                'per_page'     => $paginated->perPage(),
+                'total'        => $paginated->total(),
+                'last_page'    => $paginated->lastPage(),
+            ],
+            'filters' => $filters,
+        ]);
+    }
+
+    public function show(int $id): JsonResponse
+    {
+        $product = Product::with('images')->where('is_active', true)->findOrFail($id);
+
+        $related = Product::where('type', $product->type)
+            ->where('id', '!=', $product->id)
+            ->where('is_active', true)
+            ->inRandomOrder()
+            ->limit(4)
+            ->get(['id', 'brand', 'name', 'size', 'price', 'primary_image']);
+
+        $data = $this->formatProduct($product);
+        $data['related'] = $related->map(fn ($r) => [
+            'id'            => $r->id,
+            'brand'         => $r->brand,
+            'name'          => $r->name,
+            'size'          => $r->size,
+            'price'         => $r->price,
+            'primary_image' => $r->primary_image ? url('storage/' . $r->primary_image) : null,
+        ]);
+
+        return response()->json(['data' => $data]);
+    }
+
+    private function formatProduct(Product $p): array
+    {
+        return [
+            'id'            => $p->id,
+            'sku'           => $p->sku,
+            'brand'         => $p->brand,
+            'name'          => $p->name,
+            'size'          => $p->size,
+            'spec'          => $p->spec,
+            'season'        => $p->season,
+            'type'          => $p->type,
+            'price'         => (float) $p->price,
+            'description'   => $p->description,
+            'primary_image' => $p->primary_image ? url('storage/' . $p->primary_image) : null,
+            'images'        => $p->images->map(fn ($img) => url('storage/' . $img->path))->values(),
+            'is_active'     => (bool) $p->is_active,
+        ];
+    }
+}
