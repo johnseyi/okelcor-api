@@ -45,14 +45,15 @@ class MediaController extends Controller
         $altText    = $request->input('alt_text');
         $mimeType   = $file->getMimeType();
         $isSvg      = $mimeType === 'image/svg+xml';
+        $isVideo    = str_starts_with($mimeType, 'video/');
 
         $uuid         = Str::uuid()->toString();
         $ext          = $file->getClientOriginalExtension();
         $filename     = $uuid . '.' . $ext;
         $originalName = $file->getClientOriginalName();
 
-        if ($isSvg) {
-            // SVGs are stored as-is — no image processing
+        if ($isSvg || $isVideo) {
+            // SVGs and videos are stored as-is — no image processing
             $path = $file->storeAs($collection, $filename, 'public');
             $w    = null;
             $h    = null;

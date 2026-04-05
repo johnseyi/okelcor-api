@@ -75,7 +75,7 @@ class AdminHeroSlideController extends Controller
     public function uploadMedia(Request $request, int $id): JsonResponse
     {
         $request->validate([
-            'media'      => ['required', 'file', 'max:51200'],
+            'media'      => ['required', 'file', 'mimes:jpeg,png,jpg,gif,webp,svg,mp4,mov,avi,webm', 'max:51200'],
             'media_type' => ['required', Rule::in(['image', 'video'])],
         ]);
 
