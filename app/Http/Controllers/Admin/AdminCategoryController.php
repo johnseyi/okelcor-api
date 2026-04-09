@@ -41,7 +41,7 @@ class AdminCategoryController extends Controller
 
         if (isset($validated['translations'])) {
             foreach ($validated['translations'] as $locale => $t) {
-                if (! in_array($locale, ['en', 'de', 'fr'])) {
+                if (! in_array($locale, ['en', 'de', 'fr', 'es'])) {
                     continue;
                 }
 

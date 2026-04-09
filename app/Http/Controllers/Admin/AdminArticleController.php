@@ -127,7 +127,7 @@ class AdminArticleController extends Controller
     private function syncTranslations(Article $article, array $translations): void
     {
         foreach ($translations as $locale => $t) {
-            if (! in_array($locale, ['en', 'de', 'fr'])) {
+            if (! in_array($locale, ['en', 'de', 'fr', 'es'])) {
                 continue;
             }
 

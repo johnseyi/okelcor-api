@@ -30,6 +30,11 @@ class CategorySeeder extends Seeder
                         'label'    => 'PCR',
                         'subtitle' => 'Pneus radiaux pour voitures particulières des meilleures marques mondiales. Idéaux pour berlines, SUV et citadines.',
                     ],
+                    'es' => [
+                        'title'    => 'Neumáticos PCR',
+                        'label'    => 'PCR',
+                        'subtitle' => 'Neumáticos radiales para turismos de las principales marcas mundiales. Perfectos para sedanes, SUV y utilitarios.',
+                    ],
                 ],
             ],
             [
@@ -50,6 +55,11 @@ class CategorySeeder extends Seeder
                         'title'    => 'Pneus TBR',
                         'label'    => 'TBR',
                         'subtitle' => 'Pneus radiaux pour camions et autobus conçus pour le transport longue distance, les charges lourdes et les grands kilométrages.',
+                    ],
+                    'es' => [
+                        'title'    => 'Neumáticos TBR',
+                        'label'    => 'TBR',
+                        'subtitle' => 'Neumáticos radiales para camiones y autobuses diseñados para transporte de larga distancia, cargas pesadas y alto kilometraje.',
                     ],
                 ],
             ],
@@ -72,6 +82,11 @@ class CategorySeeder extends Seeder
                         'label'    => 'Occasion',
                         'subtitle' => 'Pneus d\'occasion contrôlés offrant un excellent rapport qualité-prix. Provenant des marchés européens avec profondeur de sculpture vérifiée.',
                     ],
+                    'es' => [
+                        'title'    => 'Neumáticos de Ocasión',
+                        'label'    => 'Ocasión',
+                        'subtitle' => 'Neumáticos usados inspeccionados con calidad garantizada y excelente relación calidad-precio. Procedentes de mercados europeos con profundidad de dibujo verificada.',
+                    ],
                 ],
             ],
             [
@@ -92,6 +107,11 @@ class CategorySeeder extends Seeder
                         'title'    => 'Pneus OTR',
                         'label'    => 'OTR',
                         'subtitle' => 'Pneus tout-terrain pour engins de construction, mines et agriculture. Conçus pour les terrains extrêmes et une utilisation intensive.',
+                    ],
+                    'es' => [
+                        'title'    => 'Neumáticos OTR',
+                        'label'    => 'OTR',
+                        'subtitle' => 'Neumáticos todoterreno para maquinaria de construcción, minería y agricultura. Fabricados para terrenos extremos y uso de alta exigencia.',
                     ],
                 ],
             ],

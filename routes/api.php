@@ -79,78 +79,95 @@ Route::prefix('v1')->group(function () {
 
     // -------------------------------------------------------------------------
     // Admin — protected by Sanctum token auth
+    // Role hierarchy:
+    //   super_admin  — full access
+    //   admin        — full access
+    //   editor       — content only (products, articles, categories, hero slides, brands, media, settings)
+    //   order_manager — operations only (orders, quote requests, contacts, newsletter)
     // -------------------------------------------------------------------------
     Route::middleware('auth:sanctum')->prefix('admin')->group(function () {
 
-        // Auth
+        // Auth — all authenticated admin users
         Route::post('logout', [AuthController::class, 'logout']);
         Route::get('me', [AuthController::class, 'me']);
 
-        // Products
-        Route::post('products/{id}/restore', [AdminProductController::class, 'restore']);
-        Route::get('products', [AdminProductController::class, 'index']);
-        Route::post('products', [AdminProductController::class, 'store']);
-        Route::get('products/{product}', [AdminProductController::class, 'show']);
-        Route::put('products/{product}', [AdminProductController::class, 'update']);
-        Route::delete('products/{product}', [AdminProductController::class, 'destroy']);
-        Route::post('products/{product}/images', [AdminProductController::class, 'uploadImages']);
-        Route::delete('products/{product}/images/{image}', [AdminProductController::class, 'deleteImage']);
+        // -----------------------------------------------------------------
+        // Content routes — super_admin, admin, editor
+        // -----------------------------------------------------------------
+        Route::middleware('admin.role:super_admin,admin,editor')->group(function () {
 
-        // Articles
-        Route::post('articles/{id}/restore', [AdminArticleController::class, 'restore']);
-        Route::get('articles', [AdminArticleController::class, 'index']);
-        Route::post('articles', [AdminArticleController::class, 'store']);
-        Route::get('articles/{article}', [AdminArticleController::class, 'show']);
-        Route::put('articles/{article}', [AdminArticleController::class, 'update']);
-        Route::delete('articles/{article}', [AdminArticleController::class, 'destroy']);
-        Route::post('articles/{id}/image', [AdminArticleController::class, 'uploadImage']);
+            // Products
+            Route::post('products/{id}/restore', [AdminProductController::class, 'restore']);
+            Route::get('products', [AdminProductController::class, 'index']);
+            Route::post('products', [AdminProductController::class, 'store']);
+            Route::get('products/{product}', [AdminProductController::class, 'show']);
+            Route::put('products/{product}', [AdminProductController::class, 'update']);
+            Route::delete('products/{product}', [AdminProductController::class, 'destroy']);
+            Route::post('products/{product}/images', [AdminProductController::class, 'uploadImages']);
+            Route::delete('products/{product}/images/{image}', [AdminProductController::class, 'deleteImage']);
 
-        // Categories (fixed set — no create/delete)
-        Route::get('categories', [AdminCategoryController::class, 'index']);
-        Route::put('categories/{category}', [AdminCategoryController::class, 'update']);
+            // Articles
+            Route::post('articles/{id}/restore', [AdminArticleController::class, 'restore']);
+            Route::get('articles', [AdminArticleController::class, 'index']);
+            Route::post('articles', [AdminArticleController::class, 'store']);
+            Route::get('articles/{article}', [AdminArticleController::class, 'show']);
+            Route::put('articles/{article}', [AdminArticleController::class, 'update']);
+            Route::delete('articles/{article}', [AdminArticleController::class, 'destroy']);
+            Route::post('articles/{id}/image', [AdminArticleController::class, 'uploadImage']);
 
-        // Hero slides
-        Route::get('hero-slides', [AdminHeroSlideController::class, 'index']);
-        Route::post('hero-slides', [AdminHeroSlideController::class, 'store']);
-        Route::get('hero-slides/{id}', [AdminHeroSlideController::class, 'show']);
-        Route::put('hero-slides/{id}', [AdminHeroSlideController::class, 'update']);
-        Route::post('hero-slides/{id}/media', [AdminHeroSlideController::class, 'uploadMedia']);
-        Route::delete('hero-slides/{id}', [AdminHeroSlideController::class, 'destroy']);
+            // Categories (fixed set — no create/delete)
+            Route::get('categories', [AdminCategoryController::class, 'index']);
+            Route::put('categories/{category}', [AdminCategoryController::class, 'update']);
 
-        // Brands
-        Route::get('brands', [AdminBrandController::class, 'index']);
-        Route::post('brands', [AdminBrandController::class, 'store']);
-        Route::get('brands/{id}', [AdminBrandController::class, 'show']);
-        Route::put('brands/{id}', [AdminBrandController::class, 'update']);
-        Route::post('brands/{id}/logo', [AdminBrandController::class, 'uploadLogo']);
-        Route::delete('brands/{id}', [AdminBrandController::class, 'destroy']);
+            // Hero slides
+            Route::get('hero-slides', [AdminHeroSlideController::class, 'index']);
+            Route::post('hero-slides', [AdminHeroSlideController::class, 'store']);
+            Route::get('hero-slides/{id}', [AdminHeroSlideController::class, 'show']);
+            Route::put('hero-slides/{id}', [AdminHeroSlideController::class, 'update']);
+            Route::post('hero-slides/{id}/media', [AdminHeroSlideController::class, 'uploadMedia']);
+            Route::delete('hero-slides/{id}', [AdminHeroSlideController::class, 'destroy']);
 
-        // Quote requests
-        Route::get('quote-requests', [AdminQuoteRequestController::class, 'index']);
-        Route::get('quote-requests/{id}', [AdminQuoteRequestController::class, 'show']);
-        Route::put('quote-requests/{id}', [AdminQuoteRequestController::class, 'update']);
+            // Brands
+            Route::get('brands', [AdminBrandController::class, 'index']);
+            Route::post('brands', [AdminBrandController::class, 'store']);
+            Route::get('brands/{id}', [AdminBrandController::class, 'show']);
+            Route::put('brands/{id}', [AdminBrandController::class, 'update']);
+            Route::post('brands/{id}/logo', [AdminBrandController::class, 'uploadLogo']);
+            Route::delete('brands/{id}', [AdminBrandController::class, 'destroy']);
 
-        // Contact messages
-        Route::get('contact-messages', [AdminContactController::class, 'index']);
-        Route::get('contact-messages/{id}', [AdminContactController::class, 'show']);
-        Route::patch('contact-messages/{id}/status', [AdminContactController::class, 'updateStatus']);
+            // Media
+            Route::get('media', [MediaController::class, 'index']);
+            Route::post('media', [MediaController::class, 'store']);
+            Route::delete('media/{id}', [MediaController::class, 'destroy']);
 
-        // Orders
-        Route::get('orders', [AdminOrderController::class, 'index']);
-        Route::get('orders/{id}', [AdminOrderController::class, 'show']);
-        Route::put('orders/{id}', [AdminOrderController::class, 'update']);
+            // Site settings
+            Route::get('settings', [AdminSettingController::class, 'index']);
+            Route::put('settings', [AdminSettingController::class, 'update']);
+        });
 
-        // Newsletter subscribers
-        Route::get('newsletter', [AdminNewsletterController::class, 'index']);
-        Route::delete('newsletter/{email}', [AdminNewsletterController::class, 'destroy']);
+        // -----------------------------------------------------------------
+        // Operations routes — super_admin, admin, order_manager
+        // -----------------------------------------------------------------
+        Route::middleware('admin.role:super_admin,admin,order_manager')->group(function () {
 
-        // Media
-        Route::get('media', [MediaController::class, 'index']);
-        Route::post('media', [MediaController::class, 'store']);
-        Route::delete('media/{id}', [MediaController::class, 'destroy']);
+            // Quote requests
+            Route::get('quote-requests', [AdminQuoteRequestController::class, 'index']);
+            Route::get('quote-requests/{id}', [AdminQuoteRequestController::class, 'show']);
+            Route::put('quote-requests/{id}', [AdminQuoteRequestController::class, 'update']);
 
-        // Site settings
-        Route::get('settings', [AdminSettingController::class, 'index']);
-        Route::put('settings', [AdminSettingController::class, 'update']);
+            // Contact messages
+            Route::get('contact-messages', [AdminContactController::class, 'index']);
+            Route::get('contact-messages/{id}', [AdminContactController::class, 'show']);
+            Route::patch('contact-messages/{id}/status', [AdminContactController::class, 'updateStatus']);
+
+            // Orders
+            Route::get('orders', [AdminOrderController::class, 'index']);
+            Route::get('orders/{id}', [AdminOrderController::class, 'show']);
+            Route::put('orders/{id}', [AdminOrderController::class, 'update']);
+
+            // Newsletter subscribers
+            Route::get('newsletter', [AdminNewsletterController::class, 'index']);
+            Route::delete('newsletter/{email}', [AdminNewsletterController::class, 'destroy']);
+        });
     });
 });

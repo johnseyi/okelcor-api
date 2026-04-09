@@ -13,11 +13,11 @@ class SearchController extends Controller
     {
         $request->validate([
             'q'      => ['required', 'string', 'min:2', 'max:200'],
-            'locale' => ['nullable', 'string', 'in:en,de,fr'],
+            'locale' => ['nullable', 'string', 'in:en,de,fr,es'],
         ]);
 
         $q      = $request->input('q');
-        $locale = in_array($request->query('locale'), ['en', 'de', 'fr'])
+        $locale = in_array($request->query('locale'), ['en', 'de', 'fr', 'es'])
             ? $request->query('locale')
             : 'en';
 

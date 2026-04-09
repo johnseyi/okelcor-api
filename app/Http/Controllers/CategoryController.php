@@ -10,7 +10,7 @@ class CategoryController extends Controller
 {
     public function index(Request $request): JsonResponse
     {
-        $locale = in_array($request->query('locale'), ['en', 'de', 'fr'])
+        $locale = in_array($request->query('locale'), ['en', 'de', 'fr', 'es'])
             ? $request->query('locale')
             : 'en';
 

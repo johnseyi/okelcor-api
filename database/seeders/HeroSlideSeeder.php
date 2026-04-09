@@ -33,6 +33,12 @@ class HeroSlideSeeder extends Seeder
                         'cta_primary'   => 'Voir le Catalogue',
                         'cta_secondary' => 'Obtenir un Devis',
                     ],
+                    'es' => [
+                        'title'         => 'Su Socio Global en Neumáticos',
+                        'subtitle'      => 'Neumáticos PCR, TBR, OTR y de ocasión suministrados a más de 40 países. Precios competitivos, entrega fiable.',
+                        'cta_primary'   => 'Ver Catálogo',
+                        'cta_secondary' => 'Solicitar Presupuesto',
+                    ],
                 ],
             ],
             [
@@ -57,6 +63,12 @@ class HeroSlideSeeder extends Seeder
                         'cta_primary'   => 'Parcourir les Produits',
                         'cta_secondary' => 'Nous Contacter',
                     ],
+                    'es' => [
+                        'title'         => 'Marcas Premium, Precios de Mayorista',
+                        'subtitle'      => 'Michelin, Bridgestone, Continental y más — suministro directo, precios para compradores B2B.',
+                        'cta_primary'   => 'Ver Productos',
+                        'cta_secondary' => 'Contáctenos',
+                    ],
                 ],
             ],
             [
@@ -80,6 +92,12 @@ class HeroSlideSeeder extends Seeder
                         'subtitle'      => 'Soumettez vos besoins en pneumatiques et recevez un devis compétitif dans un délai d\'un jour ouvrable.',
                         'cta_primary'   => 'Demander un Devis',
                         'cta_secondary' => 'En Savoir Plus',
+                    ],
+                    'es' => [
+                        'title'         => 'Presupuestos Rápidos, Suministro Fiable',
+                        'subtitle'      => 'Envíe sus necesidades de neumáticos y reciba un presupuesto competitivo en 1 día hábil.',
+                        'cta_primary'   => 'Solicitar Presupuesto',
+                        'cta_secondary' => 'Saber Más',
                     ],
                 ],
             ],

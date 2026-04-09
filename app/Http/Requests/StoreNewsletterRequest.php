@@ -15,7 +15,7 @@ class StoreNewsletterRequest extends FormRequest
     {
         return [
             'email'  => ['required', 'email', 'max:255'],
-            'locale' => ['nullable', 'string', 'in:en,de,fr'],
+            'locale' => ['nullable', 'string', 'in:en,de,fr,es'],
         ];
     }
 }

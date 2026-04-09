@@ -83,7 +83,7 @@ class ArticleController extends Controller
 
     private function resolveLocale(Request $request): string
     {
-        return in_array($request->query('locale'), ['en', 'de', 'fr'])
+        return in_array($request->query('locale'), ['en', 'de', 'fr', 'es'])
             ? $request->query('locale')
             : 'en';
     }
