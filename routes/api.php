@@ -21,6 +21,7 @@ use App\Http\Controllers\Admin\AdminOrderController;
 use App\Http\Controllers\Admin\AdminProductController;
 use App\Http\Controllers\Admin\AdminQuoteRequestController;
 use App\Http\Controllers\Admin\AdminSettingController;
+use App\Http\Controllers\Admin\AdminUserController;
 use App\Http\Controllers\Admin\AuthController;
 use App\Http\Controllers\Admin\MediaController;
 use Illuminate\Support\Facades\Route;
@@ -90,6 +91,20 @@ Route::prefix('v1')->group(function () {
         // Auth — all authenticated admin users
         Route::post('logout', [AuthController::class, 'logout']);
         Route::get('me', [AuthController::class, 'me']);
+
+        // Own profile — all authenticated admin roles
+        Route::get('profile', [AdminUserController::class, 'profile']);
+        Route::put('profile', [AdminUserController::class, 'updateProfile']);
+        Route::put('profile/password', [AdminUserController::class, 'changePassword']);
+
+        // User management — super_admin only
+        Route::middleware('admin.role:super_admin')->group(function () {
+            Route::get('users', [AdminUserController::class, 'index']);
+            Route::post('users', [AdminUserController::class, 'store']);
+            Route::get('users/{id}', [AdminUserController::class, 'show']);
+            Route::put('users/{id}', [AdminUserController::class, 'update']);
+            Route::delete('users/{id}', [AdminUserController::class, 'destroy']);
+        });
 
         // -----------------------------------------------------------------
         // Content routes — super_admin, admin, editor
