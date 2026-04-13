@@ -67,6 +67,22 @@ class AdminQuoteRequestController extends Controller
         ]);
     }
 
+    public function updateStatus(Request $request, int $id): JsonResponse
+    {
+        $request->validate([
+            'status' => ['required', Rule::in(['new', 'reviewed', 'quoted', 'closed'])],
+        ]);
+
+        $quote = QuoteRequest::findOrFail($id);
+        $quote->update(['status' => $request->status]);
+
+        return response()->json([
+            'data'    => $this->formatDetail($quote->fresh()),
+            'message' => 'Status updated successfully.',
+            'meta'    => (object) [],
+        ]);
+    }
+
     private function formatList(QuoteRequest $r): array
     {
         return [
