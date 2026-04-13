@@ -19,4 +19,9 @@ class HeroSlide extends Model
         'cta_secondary_href',
         'is_active',
     ];
+
+    public function translations()
+    {
+        return $this->hasMany(HeroSlideTranslation::class, 'slide_id');
+    }
 }

@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\HeroSlide;
+use App\Models\HeroSlideTranslation;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
@@ -15,7 +16,7 @@ class AdminHeroSlideController extends Controller
 {
     public function index(): JsonResponse
     {
-        $slides = HeroSlide::orderBy('sort_order')->get();
+        $slides = HeroSlide::with('translations')->orderBy('sort_order')->get();
 
         return response()->json([
             'data'    => $slides->map(fn ($s) => $this->formatSlide($s))->values(),
@@ -39,6 +40,11 @@ class AdminHeroSlideController extends Controller
             'is_active'           => true,
         ]);
 
+        // Seed EN translation from the direct fields so locale fallback is consistent
+        $this->syncTranslations($slide, $request);
+
+        $slide->load('translations');
+
         return response()->json([
             'data'    => $this->formatSlide($slide),
             'message' => 'Hero slide created.',
@@ -47,7 +53,9 @@ class AdminHeroSlideController extends Controller
 
     public function show(int $id): JsonResponse
     {
-        return response()->json(['data' => $this->formatSlide(HeroSlide::findOrFail($id))]);
+        $slide = HeroSlide::with('translations')->findOrFail($id);
+
+        return response()->json(['data' => $this->formatSlide($slide)]);
     }
 
     public function update(Request $request, int $id): JsonResponse
@@ -65,6 +73,11 @@ class AdminHeroSlideController extends Controller
             'cta_secondary_label' => $request->cta_secondary_label,
             'cta_secondary_href'  => $request->cta_secondary_href,
         ]);
+
+        // Also accept per-locale translations if provided
+        $this->syncTranslations($slide, $request);
+
+        $slide->load('translations');
 
         return response()->json([
             'data'    => $this->formatSlide($slide->fresh()),
@@ -132,19 +145,74 @@ class AdminHeroSlideController extends Controller
     private function textRules(): array
     {
         return [
-            'title'               => ['required', 'string', 'max:300'],
-            'subtitle'            => ['nullable', 'string', 'max:1000'],
-            'media_type'          => ['nullable', Rule::in(['image', 'video'])],
-            'order'               => ['nullable', 'integer'],
-            'cta_primary_label'   => ['nullable', 'string', 'max:100'],
-            'cta_primary_href'    => ['nullable', 'string', 'max:500'],
-            'cta_secondary_label' => ['nullable', 'string', 'max:100'],
-            'cta_secondary_href'  => ['nullable', 'string', 'max:500'],
+            'title'                        => ['required', 'string', 'max:300'],
+            'subtitle'                     => ['nullable', 'string', 'max:1000'],
+            'media_type'                   => ['nullable', Rule::in(['image', 'video'])],
+            'order'                        => ['nullable', 'integer'],
+            'cta_primary_label'            => ['nullable', 'string', 'max:100'],
+            'cta_primary_href'             => ['nullable', 'string', 'max:500'],
+            'cta_secondary_label'          => ['nullable', 'string', 'max:100'],
+            'cta_secondary_href'           => ['nullable', 'string', 'max:500'],
+            // Optional per-locale translations
+            'translations'                 => ['nullable', 'array'],
+            'translations.*.locale'        => ['required_with:translations', Rule::in(['en', 'de', 'fr', 'es'])],
+            'translations.*.title'         => ['required_with:translations', 'string', 'max:300'],
+            'translations.*.subtitle'      => ['nullable', 'string', 'max:1000'],
+            'translations.*.cta_primary'   => ['nullable', 'string', 'max:100'],
+            'translations.*.cta_secondary' => ['nullable', 'string', 'max:100'],
         ];
+    }
+
+    /**
+     * Sync translations for a slide.
+     * Always writes/updates the EN translation from the direct fields.
+     * Also processes any additional locales passed in request->translations[].
+     */
+    private function syncTranslations(HeroSlide $slide, Request $request): void
+    {
+        // Always upsert the EN translation from the primary fields
+        HeroSlideTranslation::updateOrCreate(
+            ['slide_id' => $slide->id, 'locale' => 'en'],
+            [
+                'title'         => $request->title,
+                'subtitle'      => $request->subtitle ?? '',
+                'cta_primary'   => $request->cta_primary_label ?? '',
+                'cta_secondary' => $request->cta_secondary_label ?? '',
+            ]
+        );
+
+        // Process any extra locale translations sent by the admin UI
+        foreach ($request->input('translations', []) as $t) {
+            $locale = $t['locale'] ?? null;
+            if (! $locale || ! in_array($locale, ['en', 'de', 'fr', 'es'])) {
+                continue;
+            }
+
+            HeroSlideTranslation::updateOrCreate(
+                ['slide_id' => $slide->id, 'locale' => $locale],
+                [
+                    'title'         => $t['title'],
+                    'subtitle'      => $t['subtitle'] ?? '',
+                    'cta_primary'   => $t['cta_primary'] ?? '',
+                    'cta_secondary' => $t['cta_secondary'] ?? '',
+                ]
+            );
+        }
     }
 
     private function formatSlide(HeroSlide $s): array
     {
+        // Build translations map for admin response
+        $translations = [];
+        foreach ($s->translations ?? [] as $t) {
+            $translations[$t->locale] = [
+                'title'         => $t->title,
+                'subtitle'      => $t->subtitle,
+                'cta_primary'   => $t->cta_primary,
+                'cta_secondary' => $t->cta_secondary,
+            ];
+        }
+
         return [
             'id'                  => $s->id,
             'title'               => $s->title,
@@ -157,6 +225,7 @@ class AdminHeroSlideController extends Controller
             'cta_primary_href'    => $s->cta_primary_href,
             'cta_secondary_label' => $s->cta_secondary_label,
             'cta_secondary_href'  => $s->cta_secondary_href,
+            'translations'        => $translations,
         ];
     }
 }
