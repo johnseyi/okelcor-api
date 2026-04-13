@@ -13,7 +13,11 @@ class ArticleController extends Controller
         $locale  = $this->resolveLocale($request);
         $perPage = (int) $request->input('per_page', 12);
 
-        $query = Article::with(['translations' => fn ($q) => $q->where('locale', $locale)])
+        // Load both the requested locale and EN so we can fall back to EN
+        // when no translation exists for the requested locale.
+        $locales = array_unique([$locale, 'en']);
+
+        $query = Article::with(['translations' => fn ($q) => $q->whereIn('locale', $locales)])
             ->where('is_published', true)
             ->orderByDesc('published_at');
 
@@ -41,12 +45,16 @@ class ArticleController extends Controller
     public function show(Request $request, string $slug): JsonResponse
     {
         $locale  = $this->resolveLocale($request);
-        $article = Article::with(['translations' => fn ($q) => $q->where('locale', $locale)])
+        $locales = array_unique([$locale, 'en']);
+
+        $article = Article::with(['translations' => fn ($q) => $q->whereIn('locale', $locales)])
             ->where('is_published', true)
             ->where('slug', $slug)
             ->firstOrFail();
 
-        $translation = $article->translations->first();
+        // Prefer requested locale; fall back to EN
+        $translation = $article->translations->firstWhere('locale', $locale)
+            ?? $article->translations->firstWhere('locale', 'en');
 
         return response()->json([
             'data' => [
@@ -66,7 +74,9 @@ class ArticleController extends Controller
 
     private function formatArticleList(Article $a, string $locale): array
     {
-        $t = $a->translations->first();
+        // Prefer requested locale; fall back to EN
+        $t = $a->translations->firstWhere('locale', $locale)
+            ?? $a->translations->firstWhere('locale', 'en');
 
         return [
             'id'           => $a->id,
