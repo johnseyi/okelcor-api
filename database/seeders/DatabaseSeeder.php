@@ -23,6 +23,9 @@ class DatabaseSeeder extends Seeder
             HeroSlideSeeder::class,
             ProductSeeder::class,
             ArticleSeeder::class,
+
+            // Locale patches — safe to re-run (updateOrCreate throughout)
+            SpanishTranslationSeeder::class,
         ]);
     }
 }

@@ -104,16 +104,29 @@ class HeroSlideSeeder extends Seeder
         ];
 
         foreach ($slides as $data) {
-            $slide = HeroSlide::create([
-                'sort_order' => $data['sort_order'],
-                'is_active'  => $data['is_active'],
-            ]);
+            $en = $data['translations']['en'];
+
+            // Match on EN title to avoid creating duplicates on re-run
+            $existingTranslation = HeroSlideTranslation::where('locale', 'en')
+                ->where('title', $en['title'])
+                ->first();
+
+            if ($existingTranslation) {
+                $slide = HeroSlide::find($existingTranslation->slide_id);
+            } else {
+                $slide = HeroSlide::create([
+                    'title'      => $en['title'],
+                    'subtitle'   => $en['subtitle'],
+                    'sort_order' => $data['sort_order'],
+                    'is_active'  => $data['is_active'],
+                ]);
+            }
 
             foreach ($data['translations'] as $locale => $t) {
-                HeroSlideTranslation::create(array_merge(
+                HeroSlideTranslation::updateOrCreate(
                     ['slide_id' => $slide->id, 'locale' => $locale],
                     $t
-                ));
+                );
             }
         }
     }
