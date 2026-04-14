@@ -15,6 +15,8 @@ return [
     'allowed_origins' => [
         'http://localhost:3000',
         'https://okelcor-website.vercel.app',
+        'https://okelcor.de',
+        'https://www.okelcor.de',
     ],
 
     'allowed_origins_patterns' => [],
