@@ -2,9 +2,7 @@
 
 namespace App\Services;
 
-use DragonBe\Vies\Vies;
-use DragonBe\Vies\ViesException;
-use DragonBe\Vies\ViesServiceException;
+use Illuminate\Support\Facades\Http;
 
 class VatValidationService
 {
@@ -15,11 +13,12 @@ class VatValidationService
         'NL', 'PL', 'PT', 'RO', 'SE', 'SI', 'SK', 'XI',
     ];
 
+    private const VIES_REST_BASE = 'https://ec.europa.eu/taxation_customs/vies/rest-api/ms';
+
     /**
-     * Validate a VAT number against the EU VIES service.
+     * Validate a VAT number against the EU VIES REST API (no SOAP required).
      *
-     * Accepts formats: "DE811193234" or "DE 811193234" or just "811193234"
-     * with country code derived from the prefix.
+     * Accepts formats: "DE811193234", "DE 811193234", "de811193234"
      *
      * @return array{valid: bool, name: string|null, address: string|null, country_code: string, vat_number: string, message: string}
      */
@@ -38,61 +37,46 @@ class VatValidationService
             ];
         }
 
-        if (! in_array(strtoupper($countryCode), self::EU_COUNTRIES, true)) {
+        $countryCode = strtoupper($countryCode);
+
+        if (! in_array($countryCode, self::EU_COUNTRIES, true)) {
             return [
                 'valid'        => false,
                 'name'         => null,
                 'address'      => null,
-                'country_code' => strtoupper($countryCode),
+                'country_code' => $countryCode,
                 'vat_number'   => $number,
                 'message'      => "Country code {$countryCode} is not supported by the EU VIES service.",
             ];
         }
 
         try {
-            $vies   = new Vies();
-            $result = $vies->validateVat(strtoupper($countryCode), $number);
+            $response = Http::timeout(10)->get(
+                self::VIES_REST_BASE . "/{$countryCode}/vat/{$number}"
+            );
 
-            $valid = $result->isValid();
+            if (! $response->successful()) {
+                return $this->unavailable($countryCode, $number);
+            }
+
+            $data  = $response->json();
+            $valid = (bool) ($data['isValid'] ?? false);
+
+            $name    = $this->blankToNull($data['name'] ?? null);
+            $address = $this->blankToNull($data['address'] ?? null);
 
             return [
                 'valid'        => $valid,
-                'name'         => $result->getName() ?: null,
-                'address'      => $result->getAddress() ?: null,
-                'country_code' => strtoupper($countryCode),
+                'name'         => $name,
+                'address'      => $address,
+                'country_code' => $countryCode,
                 'vat_number'   => $number,
                 'message'      => $valid
                     ? 'VAT number is valid.'
                     : 'VAT number is not valid.',
             ];
-        } catch (ViesServiceException $e) {
-            // VIES service is temporarily down or returning a fault
-            return [
-                'valid'        => false,
-                'name'         => null,
-                'address'      => null,
-                'country_code' => strtoupper($countryCode),
-                'vat_number'   => $number,
-                'message'      => 'VAT validation service unavailable, please try again.',
-            ];
-        } catch (ViesException $e) {
-            return [
-                'valid'        => false,
-                'name'         => null,
-                'address'      => null,
-                'country_code' => strtoupper($countryCode),
-                'vat_number'   => $number,
-                'message'      => 'VAT validation service unavailable, please try again.',
-            ];
         } catch (\Throwable $e) {
-            return [
-                'valid'        => false,
-                'name'         => null,
-                'address'      => null,
-                'country_code' => strtoupper($countryCode),
-                'vat_number'   => $number,
-                'message'      => 'VAT validation service unavailable, please try again.',
-            ];
+            return $this->unavailable($countryCode, $number);
         }
     }
 
@@ -104,11 +88,32 @@ class VatValidationService
     {
         $clean = strtoupper(preg_replace('/\s+/', '', $vatNumber));
 
-        // If starts with 2 letters, treat them as the country code
         if (preg_match('/^([A-Z]{2})(.+)$/', $clean, $matches)) {
             return [$matches[1], $matches[2]];
         }
 
         return [null, $clean];
+    }
+
+    private function unavailable(string $countryCode, string $number): array
+    {
+        return [
+            'valid'        => false,
+            'name'         => null,
+            'address'      => null,
+            'country_code' => $countryCode,
+            'vat_number'   => $number,
+            'message'      => 'VAT validation service unavailable, please try again.',
+        ];
+    }
+
+    // VIES REST API returns "---" when a field is not available
+    private function blankToNull(?string $value): ?string
+    {
+        if ($value === null || trim($value) === '' || trim($value) === '---') {
+            return null;
+        }
+
+        return $value;
     }
 }
