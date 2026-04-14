@@ -24,6 +24,8 @@ class Order extends Model
         'mode',
         'admin_notes',
         'ip_address',
+        'vat_number',
+        'vat_valid',
     ];
 
     protected $hidden = [

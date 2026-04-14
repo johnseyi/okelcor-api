@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\ArticleController;
+use App\Http\Controllers\VatController;
 use App\Http\Controllers\BrandController;
 use App\Http\Controllers\CategoryController;
 use App\Http\Controllers\ContactController;
@@ -56,6 +57,11 @@ Route::prefix('v1')->group(function () {
     // Search — rate limited: 30/min
     Route::middleware('throttle:search')->group(function () {
         Route::get('search', SearchController::class);
+    });
+
+    // VAT validation — rate limited: 10/min
+    Route::middleware('throttle:vat')->group(function () {
+        Route::post('vat/validate', [VatController::class, 'validate']);
     });
 
     // Public forms — rate limited: 10/hour

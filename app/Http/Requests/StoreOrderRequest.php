@@ -31,6 +31,7 @@ class StoreOrderRequest extends FormRequest
             'items.*.unit_price'        => ['required', 'numeric', 'min:0'],
             'items.*.quantity'          => ['required', 'integer', 'min:1'],
             'items.*.product_id'        => ['nullable', 'integer'],
+            'vat_number'                => ['nullable', 'string', 'min:4', 'max:20'],
         ];
     }
 }

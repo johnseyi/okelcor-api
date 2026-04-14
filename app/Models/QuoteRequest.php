@@ -25,6 +25,8 @@ class QuoteRequest extends Model
         'status',
         'admin_notes',
         'ip_address',
+        'vat_number',
+        'vat_valid',
     ];
 
     protected $hidden = [

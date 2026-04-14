@@ -35,5 +35,10 @@ class AppServiceProvider extends ServiceProvider
         RateLimiter::for('search', function (Request $request) {
             return Limit::perMinute(30)->by($request->ip());
         });
+
+        // VAT validation: 10 per IP per minute
+        RateLimiter::for('vat', function (Request $request) {
+            return Limit::perMinute(10)->by($request->ip());
+        });
     }
 }

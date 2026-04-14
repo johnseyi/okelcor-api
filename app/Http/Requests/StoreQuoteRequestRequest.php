@@ -28,6 +28,7 @@ class StoreQuoteRequestRequest extends FormRequest
             'delivery_location' => ['required', 'string', 'max:300'],
             'delivery_timeline' => ['nullable', 'string', 'max:100'],
             'notes'             => ['required', 'string'],
+            'vat_number'        => ['nullable', 'string', 'min:4', 'max:20'],
         ];
     }
 }
