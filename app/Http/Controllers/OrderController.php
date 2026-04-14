@@ -48,7 +48,7 @@ class OrderController extends Controller
                 'delivery_cost'  => 0.00,
                 'total'          => $total,
                 'status'         => 'pending',
-                'payment_status' => 'unpaid',
+                'payment_status' => 'pending',
                 'mode'           => 'manual',
                 'ip_address'     => $request->ip(),
                 'vat_number'     => $vatNumber,
