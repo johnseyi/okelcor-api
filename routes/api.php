@@ -78,6 +78,7 @@ Route::prefix('v1')->group(function () {
     Route::middleware('throttle:public-form')->group(function () {
         Route::post('contact', [ContactController::class, 'store']);
         Route::get('orders', [OrderController::class, 'index']);
+        Route::get('orders/{ref}', [OrderController::class, 'show']);
         Route::post('orders', [OrderController::class, 'store']);
         Route::post('newsletter/subscribe', [NewsletterController::class, 'subscribe']);
     });
@@ -197,6 +198,7 @@ Route::prefix('v1')->group(function () {
             Route::get('orders', [AdminOrderController::class, 'index']);
             Route::get('orders/{id}', [AdminOrderController::class, 'show']);
             Route::put('orders/{id}', [AdminOrderController::class, 'update']);
+            Route::patch('orders/{id}/status', [AdminOrderController::class, 'updateStatus']);
 
             // Newsletter subscribers
             Route::get('newsletter', [AdminNewsletterController::class, 'index']);

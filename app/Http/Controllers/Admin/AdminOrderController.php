@@ -55,16 +55,52 @@ class AdminOrderController extends Controller
     public function update(Request $request, int $id): JsonResponse
     {
         $request->validate([
-            'status' => ['required', Rule::in(['pending', 'confirmed', 'shipped', 'delivered', 'cancelled'])],
+            'status'             => ['required', Rule::in(['pending', 'confirmed', 'processing', 'shipped', 'delivered', 'cancelled'])],
+            'carrier'            => ['sometimes', 'nullable', 'string', 'max:100'],
+            'tracking_number'    => ['sometimes', 'nullable', 'string', 'max:100'],
+            'estimated_delivery' => ['sometimes', 'nullable', 'date'],
+            'admin_notes'        => ['sometimes', 'nullable', 'string'],
         ]);
 
         $order = Order::findOrFail($id);
-        $order->update(['status' => $request->status]);
+        $order->update($request->only(['status', 'carrier', 'tracking_number', 'estimated_delivery', 'admin_notes']));
         $order->load('items');
 
         return response()->json([
             'data'    => $this->formatOrderDetail($order),
             'message' => 'success',
+        ]);
+    }
+
+    /**
+     * PATCH /api/v1/admin/orders/{id}/status
+     *
+     * Lightweight status + shipment update used by the admin panel.
+     * All shipment fields are optional — only provided fields are updated.
+     */
+    public function updateStatus(Request $request, int $id): JsonResponse
+    {
+        $request->validate([
+            'status'             => ['required', Rule::in(['pending', 'confirmed', 'processing', 'shipped', 'delivered', 'cancelled'])],
+            'carrier'            => ['sometimes', 'nullable', 'string', 'max:100'],
+            'tracking_number'    => ['sometimes', 'nullable', 'string', 'max:100'],
+            'estimated_delivery' => ['sometimes', 'nullable', 'date'],
+        ]);
+
+        $order = Order::findOrFail($id);
+        $order->update($request->only(['status', 'carrier', 'tracking_number', 'estimated_delivery']));
+
+        return response()->json([
+            'data'    => [
+                'id'                 => $order->id,
+                'ref'                => $order->ref,
+                'status'             => $order->status,
+                'carrier'            => $order->carrier,
+                'tracking_number'    => $order->tracking_number,
+                'estimated_delivery' => $order->estimated_delivery,
+            ],
+            'meta'    => [],
+            'message' => 'Status updated successfully.',
         ]);
     }
 
@@ -96,9 +132,14 @@ class AdminOrderController extends Controller
             'total'          => (float) $o->total,
             'status'         => $o->status,
             'payment_method' => $o->payment_method,
-            'notes'          => $o->admin_notes,
-            'created_at'     => $o->created_at?->toIso8601String(),
-            'updated_at'     => $o->updated_at?->toIso8601String(),
+            'notes'              => $o->admin_notes,
+            'carrier'            => $o->carrier,
+            'tracking_number'    => $o->tracking_number,
+            'estimated_delivery' => $o->estimated_delivery,
+            'payment_status'     => $o->payment_status,
+            'payment_intent_id'  => $o->payment_intent_id,
+            'created_at'         => $o->created_at?->toIso8601String(),
+            'updated_at'         => $o->updated_at?->toIso8601String(),
             'items'          => $o->items->map(fn ($i) => [
                 'id'           => $i->id,
                 'product_id'   => $i->product_id,

@@ -34,29 +34,55 @@ class OrderController extends Controller
             ->get();
 
         return response()->json([
-            'data' => $orders->map(fn ($o) => [
-                'ref'            => $o->ref,
-                'status'         => $o->status,
-                'payment_status' => $o->payment_status,
-                'payment_method' => $o->payment_method,
-                'subtotal'       => (float) $o->subtotal,
-                'delivery_cost'  => (float) $o->delivery_cost,
-                'total'          => (float) $o->total,
-                'created_at'     => $o->created_at?->toIso8601String(),
-                'items'          => $o->items->map(fn ($i) => [
-                    'product_id' => $i->product_id,
-                    'brand'      => $i->brand,
-                    'name'       => $i->name,
-                    'size'       => $i->size,
-                    'sku'        => $i->sku,
-                    'quantity'   => $i->quantity,
-                    'unit_price' => (float) $i->unit_price,
-                    'line_total' => (float) $i->line_total,
-                ])->values(),
-            ])->values(),
+            'data'    => $orders->map(fn ($o) => $this->formatOrder($o))->values(),
             'meta'    => ['total' => $orders->count()],
             'message' => 'success',
         ]);
+    }
+
+    /**
+     * GET /api/v1/orders/{ref}
+     *
+     * Returns the full current state of one order by its ref.
+     * Used by the customer tracking page (fetched with cache: "no-store").
+     */
+    public function show(string $ref): JsonResponse
+    {
+        $order = Order::with('items')
+            ->where('ref', $ref)
+            ->firstOrFail();
+
+        return response()->json([
+            'data'    => $this->formatOrder($order),
+            'message' => 'success',
+        ]);
+    }
+
+    private function formatOrder(Order $o): array
+    {
+        return [
+            'ref'               => $o->ref,
+            'status'            => $o->status,
+            'payment_status'    => $o->payment_status,
+            'payment_method'    => $o->payment_method,
+            'subtotal'          => (float) $o->subtotal,
+            'delivery_cost'     => (float) $o->delivery_cost,
+            'total'             => (float) $o->total,
+            'carrier'           => $o->carrier,
+            'tracking_number'   => $o->tracking_number,
+            'estimated_delivery' => $o->estimated_delivery,
+            'created_at'        => $o->created_at?->toIso8601String(),
+            'items'             => $o->items->map(fn ($i) => [
+                'product_id'   => $i->product_id,
+                'product_name' => $i->name,
+                'brand'        => $i->brand,
+                'size'         => $i->size,
+                'sku'          => $i->sku,
+                'quantity'     => $i->quantity,
+                'unit_price'   => (float) $i->unit_price,
+                'subtotal'     => (float) $i->line_total,
+            ])->values(),
+        ];
     }
 
     public function store(StoreOrderRequest $request): JsonResponse

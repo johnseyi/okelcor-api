@@ -27,6 +27,9 @@ class Order extends Model
         'vat_number',
         'vat_valid',
         'payment_intent_id',
+        'carrier',
+        'tracking_number',
+        'estimated_delivery',
     ];
 
     protected $hidden = [
