@@ -10,7 +10,8 @@
         "intervention/image-laravel": "^4.0",
         "laravel/framework": "^13.0",
         "laravel/sanctum": "^4.3",
-        "laravel/tinker": "^3.0"
+        "laravel/tinker": "^3.0",
+        "stripe/stripe-php": "^20.0"
     },
     "require-dev": {
         "fakerphp/faker": "^1.23",

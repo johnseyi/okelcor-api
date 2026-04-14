@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\ArticleController;
+use App\Http\Controllers\PaymentController;
 use App\Http\Controllers\VatController;
 use App\Http\Controllers\BrandController;
 use App\Http\Controllers\CategoryController;
@@ -63,6 +64,15 @@ Route::prefix('v1')->group(function () {
     Route::middleware('throttle:vat')->group(function () {
         Route::post('vat/validate', [VatController::class, 'validate']);
     });
+
+    // Payments — rate limited: 20/min
+    Route::middleware('throttle:payments')->group(function () {
+        Route::post('payments/create-intent', [PaymentController::class, 'createIntent']);
+    });
+
+    // Stripe webhook — no rate limit, raw body required for signature verification
+    Route::post('payments/webhook', [PaymentController::class, 'webhook'])
+        ->withoutMiddleware([\App\Http\Middleware\ForceJsonResponse::class]);
 
     // Public forms — rate limited: 10/hour
     Route::middleware('throttle:public-form')->group(function () {

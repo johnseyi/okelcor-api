@@ -26,6 +26,7 @@ class Order extends Model
         'ip_address',
         'vat_number',
         'vat_valid',
+        'payment_intent_id',
     ];
 
     protected $hidden = [
