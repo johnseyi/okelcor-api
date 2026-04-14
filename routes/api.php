@@ -77,6 +77,7 @@ Route::prefix('v1')->group(function () {
     // Public forms — rate limited: 10/hour
     Route::middleware('throttle:public-form')->group(function () {
         Route::post('contact', [ContactController::class, 'store']);
+        Route::get('orders', [OrderController::class, 'index']);
         Route::post('orders', [OrderController::class, 'store']);
         Route::post('newsletter/subscribe', [NewsletterController::class, 'subscribe']);
     });

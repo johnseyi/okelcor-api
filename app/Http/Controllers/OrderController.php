@@ -7,6 +7,7 @@ use App\Models\Order;
 use App\Models\OrderItem;
 use App\Services\VatValidationService;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
@@ -14,6 +15,49 @@ use Illuminate\Support\Str;
 class OrderController extends Controller
 {
     public function __construct(private VatValidationService $vatService) {}
+
+    /**
+     * GET /api/v1/orders?email=customer@example.com
+     *
+     * Returns orders for a given email address, with items.
+     * Requires ?email= — returns empty list if omitted.
+     */
+    public function index(Request $request): JsonResponse
+    {
+        $request->validate([
+            'email' => ['required', 'email', 'max:255'],
+        ]);
+
+        $orders = Order::with('items')
+            ->where('customer_email', $request->email)
+            ->orderByDesc('created_at')
+            ->get();
+
+        return response()->json([
+            'data' => $orders->map(fn ($o) => [
+                'ref'            => $o->ref,
+                'status'         => $o->status,
+                'payment_status' => $o->payment_status,
+                'payment_method' => $o->payment_method,
+                'subtotal'       => (float) $o->subtotal,
+                'delivery_cost'  => (float) $o->delivery_cost,
+                'total'          => (float) $o->total,
+                'created_at'     => $o->created_at?->toIso8601String(),
+                'items'          => $o->items->map(fn ($i) => [
+                    'product_id' => $i->product_id,
+                    'brand'      => $i->brand,
+                    'name'       => $i->name,
+                    'size'       => $i->size,
+                    'sku'        => $i->sku,
+                    'quantity'   => $i->quantity,
+                    'unit_price' => (float) $i->unit_price,
+                    'line_total' => (float) $i->line_total,
+                ])->values(),
+            ])->values(),
+            'meta'    => ['total' => $orders->count()],
+            'message' => 'success',
+        ]);
+    }
 
     public function store(StoreOrderRequest $request): JsonResponse
     {
