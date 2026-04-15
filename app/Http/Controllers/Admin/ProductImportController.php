@@ -26,17 +26,22 @@ class ProductImportController extends Controller
             'file' => ['required', 'file', 'extensions:csv', 'max:51200'], // 50 MB max
         ]);
 
-        // Store the uploaded file temporarily
-        $uploadedFile = $request->file('file');
-        $tmpPath      = $uploadedFile->storeAs('imports/tmp', 'wix_import_' . time() . '.csv', 'local');
-        $fullPath     = storage_path('app/' . $tmpPath);
+        // Ensure the temp directory exists
+        Storage::disk('local')->makeDirectory('imports/tmp');
+
+        $filename = 'wix_import_' . time() . '.csv';
+
+        // Store the uploaded file
+        $request->file('file')->storeAs('imports/tmp', $filename, 'local');
+
+        $fullPath = storage_path('app/imports/tmp/' . $filename);
 
         try {
             $exitCode = Artisan::call('import:wix-products', ['file' => $fullPath]);
             $output   = Artisan::output();
         } finally {
             // Clean up temp file
-            Storage::disk('local')->delete($tmpPath);
+            Storage::disk('local')->delete('imports/tmp/' . $filename);
         }
 
         if ($exitCode !== 0) {
