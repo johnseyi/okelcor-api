@@ -20,7 +20,10 @@ class ProductImportController extends Controller
     public function import(Request $request): JsonResponse
     {
         $request->validate([
-            'file' => ['required', 'file', 'mimes:csv,txt', 'max:51200'], // 50 MB max
+            // mimes checks detected MIME type — CSVs commonly arrive as text/plain,
+            // application/vnd.ms-excel, or application/octet-stream depending on OS/browser.
+            // extensions:csv checks only the file extension, which is reliable enough here.
+            'file' => ['required', 'file', 'extensions:csv', 'max:51200'], // 50 MB max
         ]);
 
         // Store the uploaded file temporarily
