@@ -10,6 +10,26 @@ class ProductController extends Controller
 {
     public function index(Request $request): JsonResponse
     {
+        $hasFilter = $request->filled('search')
+            || $request->filled('type')
+            || $request->filled('brand')
+            || $request->filled('season')
+            || $request->filled('size');
+
+        if (! $hasFilter) {
+            return response()->json([
+                'data'    => [],
+                'meta'    => [
+                    'current_page' => 1,
+                    'per_page'     => 50,
+                    'total'        => 0,
+                    'last_page'    => 1,
+                ],
+                'filters' => ['brands' => [], 'types' => [], 'seasons' => []],
+                'message' => 'Please search or filter to find products.',
+            ]);
+        }
+
         $query = Product::with('images')->where('is_active', true);
 
         if ($request->filled('type')) {
@@ -20,6 +40,9 @@ class ProductController extends Controller
         }
         if ($request->filled('season')) {
             $query->where('season', $request->season);
+        }
+        if ($request->filled('size')) {
+            $query->where('size', 'like', '%' . $request->size . '%');
         }
         if ($request->filled('search')) {
             $s = $request->search;
@@ -45,7 +68,7 @@ class ProductController extends Controller
             default      => $query->orderByDesc('created_at'),
         };
 
-        $perPage = min((int) $request->input('per_page', 24), 100);
+        $perPage   = min((int) $request->input('per_page', 50), 50);
         $paginated = $query->paginate($perPage);
 
         $data = $paginated->map(fn ($p) => $this->formatProduct($p));
@@ -59,6 +82,7 @@ class ProductController extends Controller
                 'last_page'    => $paginated->lastPage(),
             ],
             'filters' => $filters,
+            'message' => 'success',
         ]);
     }
 

@@ -26,6 +26,7 @@ use App\Http\Controllers\Admin\AdminSettingController;
 use App\Http\Controllers\Admin\AdminUserController;
 use App\Http\Controllers\Admin\AuthController;
 use App\Http\Controllers\Admin\MediaController;
+use App\Http\Controllers\Admin\ProductImportController;
 use Illuminate\Support\Facades\Route;
 
 Route::prefix('v1')->group(function () {
@@ -127,6 +128,12 @@ Route::prefix('v1')->group(function () {
         // -----------------------------------------------------------------
         // Content routes — super_admin, admin, editor
         // -----------------------------------------------------------------
+        // Import / export — super_admin and admin only
+        Route::middleware('admin.role:super_admin,admin')->group(function () {
+            Route::post('products/import', [ProductImportController::class, 'import']);
+            Route::get('products/export', [ProductImportController::class, 'export']);
+        });
+
         Route::middleware('admin.role:super_admin,admin,editor')->group(function () {
 
             // Products

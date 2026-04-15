@@ -21,11 +21,20 @@ class Product extends Model
         'primary_image',
         'is_active',
         'sort_order',
+        'width',
+        'height',
+        'rim',
+        'load_index',
+        'speed_rating',
+        'stock',
+        'cost_price',
     ];
 
     protected $casts = [
-        'price'     => 'decimal:2',
-        'is_active' => 'boolean',
+        'price'      => 'decimal:2',
+        'cost_price' => 'decimal:2',
+        'is_active'  => 'boolean',
+        'stock'      => 'integer',
     ];
 
     public function images()
