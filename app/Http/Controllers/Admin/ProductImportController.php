@@ -7,7 +7,6 @@ use App\Models\Product;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Artisan;
-use Illuminate\Support\Facades\Storage;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class ProductImportController extends Controller
@@ -26,23 +25,13 @@ class ProductImportController extends Controller
             'file' => ['required', 'file', 'extensions:csv', 'max:51200'], // 50 MB max
         ]);
 
-        // Ensure the temp directory exists
-        Storage::disk('local')->makeDirectory('imports/tmp');
+        // Use PHP's temp file path directly — it is already on disk and valid
+        // for the full lifetime of this request. Avoids any storage permission
+        // issues that can occur when copying to storage/app on shared hosts.
+        $fullPath = $request->file('file')->getRealPath();
 
-        $filename = 'wix_import_' . time() . '.csv';
-
-        // Store the uploaded file
-        $request->file('file')->storeAs('imports/tmp', $filename, 'local');
-
-        $fullPath = storage_path('app/imports/tmp/' . $filename);
-
-        try {
-            $exitCode = Artisan::call('import:wix-products', ['file' => $fullPath]);
-            $output   = Artisan::output();
-        } finally {
-            // Clean up temp file
-            Storage::disk('local')->delete('imports/tmp/' . $filename);
-        }
+        $exitCode = Artisan::call('import:wix-products', ['file' => $fullPath]);
+        $output   = Artisan::output();
 
         if ($exitCode !== 0) {
             return response()->json([
