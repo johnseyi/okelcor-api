@@ -18,6 +18,10 @@ class ProductImportController extends Controller
      */
     public function import(Request $request): JsonResponse
     {
+        // Allow up to 5 minutes and 256 MB for large CSV imports on shared hosting
+        set_time_limit(300);
+        ini_set('memory_limit', '256M');
+
         $request->validate([
             // mimes checks detected MIME type — CSVs commonly arrive as text/plain,
             // application/vnd.ms-excel, or application/octet-stream depending on OS/browser.
@@ -25,30 +29,41 @@ class ProductImportController extends Controller
             'file' => ['required', 'file', 'extensions:csv', 'max:51200'], // 50 MB max
         ]);
 
-        // Use PHP's temp file path directly — it is already on disk and valid
-        // for the full lifetime of this request. Avoids any storage permission
-        // issues that can occur when copying to storage/app on shared hosts.
-        $fullPath = $request->file('file')->getRealPath();
+        try {
+            // Use PHP's temp file path directly — it is already on disk and valid
+            // for the full lifetime of this request. Avoids any storage permission
+            // issues that can occur when copying to storage/app on shared hosts.
+            $fullPath = $request->file('file')->getRealPath();
 
-        $exitCode = Artisan::call('import:wix-products', ['file' => $fullPath]);
-        $output   = Artisan::output();
+            $exitCode = Artisan::call('import:wix-products', ['file' => $fullPath]);
+            $output   = Artisan::output();
 
-        if ($exitCode !== 0) {
+            if ($exitCode !== 0) {
+                return response()->json([
+                    'data'    => null,
+                    'message' => 'Import failed.',
+                    'error'   => trim($output),
+                ], 422);
+            }
+
+            $counts = $this->parseOutputCounts($output);
+
+            return response()->json([
+                'data'    => [
+                    'imported' => $counts['imported'],
+                    'updated'  => $counts['updated'],
+                    'skipped'  => $counts['skipped'],
+                    'errors'   => [],
+                ],
+                'message' => 'Import completed successfully.',
+            ]);
+        } catch (\Throwable $e) {
             return response()->json([
                 'data'    => null,
                 'message' => 'Import failed.',
-                'output'  => $output,
+                'error'   => $e->getMessage(),
             ], 422);
         }
-
-        // Parse counts from artisan output
-        $counts = $this->parseOutputCounts($output);
-
-        return response()->json([
-            'data'    => $counts,
-            'message' => 'Import completed successfully.',
-            'output'  => $output,
-        ]);
     }
 
     /**
