@@ -204,17 +204,15 @@ class ImportWixProducts extends Command
             'season'       => null,
         ];
 
-        // Tyre size: 205/45R17 or 205/45R17C or 205/45ZR17
-        if (preg_match('/\b(\d{3})\/(\d{2,3})[ZRr]?R(\d{2})\b/i', $name, $m)) {
-            $result['width']  = $m[1];
-            $result['height'] = $m[2];
-            $result['rim']    = $m[3];
-        }
-
-        // Load index + speed rating: 88Y or 88/86H or 101T
-        if (preg_match('/\b(\d{2,3}(?:\/\d{2,3})?)([A-Z]{1,2})\b/', $name, $m)) {
-            $result['load_index']   = $m[1];
-            $result['speed_rating'] = $m[2];
+        // Combined pattern handles Wix name format: "205/45R 17 88Y"
+        // Captures width, height, rim, load_index, speed_rating in one match.
+        // \s* allows for optional space between R and rim (e.g. "R 17" or "R17").
+        if (preg_match('/(\d{3})\/(\d{2})R\s*(\d{2})\s+(\d{2,3})([A-Z]{1,2})\b/', $name, $m)) {
+            $result['width']        = $m[1];
+            $result['height']       = $m[2];
+            $result['rim']          = $m[3];
+            $result['load_index']   = $m[4];
+            $result['speed_rating'] = $m[5];
         }
 
         // Season from name keywords
@@ -229,9 +227,9 @@ class ImportWixProducts extends Command
             $result['season'] = 'Summer';
         }
 
-        // Brand: first word(s) before the size or known brand list
+        // Brand: first word before the tyre size (e.g. "Pirelli 205/45R 17 88Y" → "Pirelli")
         if ($result['width']) {
-            $beforeSize = trim(preg_replace('/\b\d{3}\/\d{2,3}[ZRr]?R\d{2}\b.*/i', '', $name));
+            $beforeSize = trim(preg_replace('/\d{3}\/\d{2}R\s*\d{2}.*/i', '', $name));
             $words      = explode(' ', $beforeSize);
             $result['brand'] = $words[0] ?? null;
         }
