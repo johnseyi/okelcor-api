@@ -15,7 +15,9 @@ class ProductController extends Controller
             || $request->filled('type')
             || $request->filled('brand')
             || $request->filled('season')
-            || $request->filled('size');
+            || $request->filled('size')
+            || $request->filled('price_min')
+            || $request->filled('price_max');
 
         if (! $hasFilter) {
             return response()->json([
@@ -44,6 +46,12 @@ class ProductController extends Controller
         }
         if ($request->filled('size')) {
             $query->where('size', 'like', '%' . $request->size . '%');
+        }
+        if ($request->filled('price_min')) {
+            $query->where('price', '>=', (float) $request->price_min);
+        }
+        if ($request->filled('price_max')) {
+            $query->where('price', '<=', (float) $request->price_max);
         }
         $searchTerm = $request->filled('q') ? $request->q : $request->input('search');
         if ($searchTerm) {
