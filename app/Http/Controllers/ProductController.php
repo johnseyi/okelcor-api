@@ -87,6 +87,37 @@ class ProductController extends Controller
         ])->withHeaders(['Cache-Control' => 'no-store, no-cache, must-revalidate']);
     }
 
+    public function specs(): JsonResponse
+    {
+        $base = Product::where('is_active', true);
+
+        $pluck = function (string $column) use ($base) {
+            return $base->clone()
+                ->whereNotNull($column)
+                ->where($column, '!=', '')
+                ->distinct()
+                ->orderByRaw("CAST({$column} AS UNSIGNED)")
+                ->pluck($column)
+                ->values();
+        };
+
+        return response()->json([
+            'data' => [
+                'widths'       => $pluck('width'),
+                'heights'      => $pluck('height'),
+                'rims'         => $pluck('rim'),
+                'load_indexes' => $pluck('load_index'),
+                'speed_ratings' => $base->clone()
+                    ->whereNotNull('speed_rating')
+                    ->where('speed_rating', '!=', '')
+                    ->distinct()
+                    ->orderBy('speed_rating')
+                    ->pluck('speed_rating')
+                    ->values(),
+            ],
+        ])->withHeaders(['Cache-Control' => 'no-store, no-cache, must-revalidate']);
+    }
+
     public function brands(): JsonResponse
     {
         $brands = Product::where('is_active', true)
