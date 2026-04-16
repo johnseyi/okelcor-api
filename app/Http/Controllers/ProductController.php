@@ -87,6 +87,19 @@ class ProductController extends Controller
         ])->withHeaders(['Cache-Control' => 'no-store, no-cache, must-revalidate']);
     }
 
+    public function brands(): JsonResponse
+    {
+        $brands = Product::where('is_active', true)
+            ->distinct()
+            ->orderBy('brand')
+            ->pluck('brand')
+            ->filter()
+            ->values();
+
+        return response()->json(['data' => $brands])
+            ->withHeaders(['Cache-Control' => 'no-store, no-cache, must-revalidate']);
+    }
+
     public function show(int $id): JsonResponse
     {
         $product = Product::with('images')->where('is_active', true)->findOrFail($id);
