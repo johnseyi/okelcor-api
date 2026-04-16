@@ -90,11 +90,11 @@ class ProductController extends Controller
     public function brands(): JsonResponse
     {
         $brands = Product::where('is_active', true)
+            ->whereNotNull('brand')
+            ->where('brand', '!=', '')
             ->distinct()
             ->orderBy('brand')
-            ->pluck('brand')
-            ->filter()
-            ->values();
+            ->pluck('brand');
 
         return response()->json(['data' => $brands])
             ->withHeaders(['Cache-Control' => 'no-store, no-cache, must-revalidate']);
