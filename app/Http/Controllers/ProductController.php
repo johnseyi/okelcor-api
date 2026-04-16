@@ -11,6 +11,7 @@ class ProductController extends Controller
     public function index(Request $request): JsonResponse
     {
         $hasFilter = $request->filled('search')
+            || $request->filled('q')
             || $request->filled('type')
             || $request->filled('brand')
             || $request->filled('season')
@@ -44,13 +45,13 @@ class ProductController extends Controller
         if ($request->filled('size')) {
             $query->where('size', 'like', '%' . $request->size . '%');
         }
-        if ($request->filled('search')) {
-            $s = $request->search;
-            $query->where(function ($q) use ($s) {
-                $q->where('brand', 'like', "%{$s}%")
-                  ->orWhere('name', 'like', "%{$s}%")
-                  ->orWhere('size', 'like', "%{$s}%")
-                  ->orWhere('sku', 'like', "%{$s}%");
+        $searchTerm = $request->filled('q') ? $request->q : $request->input('search');
+        if ($searchTerm) {
+            $query->where(function ($q) use ($searchTerm) {
+                $q->where('brand', 'like', "%{$searchTerm}%")
+                  ->orWhere('name', 'like', "%{$searchTerm}%")
+                  ->orWhere('size', 'like', "%{$searchTerm}%")
+                  ->orWhere('sku', 'like', "%{$searchTerm}%");
             });
         }
 
