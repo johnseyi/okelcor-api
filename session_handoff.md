@@ -1,5 +1,5 @@
 # Session Handoff — Okelcor API
-Last updated: 2026-04-15
+Last updated: 2026-04-16
 
 ## Project
 Laravel 11 / PHP 8.3 REST API for Okelcor B2B tyre wholesale.
@@ -12,12 +12,14 @@ Laravel 11 / PHP 8.3 REST API for Okelcor B2B tyre wholesale.
 
 ---
 
-## Current Route Count: 80
+## Current Route Count: 90+
 
 ### Public routes (no auth)
 ```
-GET    /api/v1/products
+GET    /api/v1/products                  ← requires at least one filter param
 GET    /api/v1/products/{id}
+GET    /api/v1/products/brands           ← distinct brand list for filter dropdown
+GET    /api/v1/products/specs            ← distinct widths/heights/rims/load_indexes/speed_ratings
 GET    /api/v1/articles
 GET    /api/v1/articles/{slug}
 GET    /api/v1/categories
@@ -38,6 +40,21 @@ GET    /api/v1/newsletter/confirm/{token}
 POST   /api/v1/quote-requests
 POST   /api/v1/admin/login
 ```
+
+### Product filter query params (GET /api/v1/products)
+At least ONE of these is required or endpoint returns empty with message:
+| Param | Behaviour |
+|-------|-----------|
+| `q` or `search` | Full-text across brand, name, size, sku |
+| `brand` | Exact match e.g. `?brand=PIRELLI` |
+| `type` | PCR / TBR / OTR / Used |
+| `season` | Summer / Winter / All Season / All-Terrain |
+| `size` | Partial match e.g. `?size=205/45R17` |
+| `price_min` | `WHERE price >= value` |
+| `price_max` | `WHERE price <= value` |
+| `sort` | `price_asc`, `price_desc`, `newest` (default) |
+| `page` | Pagination |
+Max 50 per page. All responses include `Cache-Control: no-store`.
 
 ### Admin routes (auth:sanctum)
 All under `/api/v1/admin/` — require `Authorization: Bearer {token}`.
@@ -69,6 +86,10 @@ DELETE /admin/products/{id}             ← soft delete, 204
 POST   /admin/products/{id}/restore
 POST   /admin/products/{id}/images
 DELETE /admin/products/{id}/images/{image}
+
+# Product CSV import/export — super_admin, admin only
+POST   /admin/products/import           ← upload CSV file (field: "file"), 50MB max
+GET    /admin/products/export           ← streams CSV download
 
 GET    /admin/articles
 POST   /admin/articles
@@ -108,6 +129,10 @@ GET    /admin/orders/{id}
 PUT    /admin/orders/{id}               ← full update incl. shipment fields
 PATCH  /admin/orders/{id}/status       ← lightweight status + shipment update
 
+# Order CSV import/export — super_admin, admin, order_manager
+POST   /admin/orders/import             ← upload Wix CSV (field: "file"), 50MB max
+GET    /admin/orders/export             ← streams CSV download
+
 GET    /admin/quote-requests
 GET    /admin/quote-requests/{id}
 PUT    /admin/quote-requests/{id}
@@ -123,13 +148,80 @@ DELETE /admin/newsletter/{email}
 
 ---
 
+## Import/Export — Key Notes
+
+### Product import (`POST /admin/products/import`)
+- Artisan command: `php artisan import:wix-products {file}`
+- Upserts on `sku` — safe to re-run
+- Parses tyre dimensions (width/height/rim/load_index/speed_rating) from product name
+- Pattern: `205/45R 17 88Y` (space between R and rim number)
+- Detects season from name keywords (Winter, All Season, All-Terrain, Summer)
+- Detects type: PCR (default) or TBR (keywords: Truck, Bus, TBR, Heavy, Commercial, LT, Cargo)
+- Response: `{ data: { imported, updated, skipped, errors: [] } }`
+
+### Order import (`POST /admin/orders/import`)
+- Artisan command: `php artisan import:wix-orders {file}`
+- Upserts on `order number` (Wix ref) — safe to re-run, items replaced each time
+- Wix CSV column mapping (exact names Wix uses):
+  - `Order number` → `ref`
+  - `Contact email` → `customer_email`
+  - `Billing name` → `customer_name`
+  - `Billing phone` → `customer_phone`
+  - `Billing address` → `address`
+  - `Billing city` → `city`
+  - `Billing zip/postal code` → `postal_code` (note: slash in column name)
+  - `Billing country` → `country`
+  - `Payment method` → `payment_method`
+  - `Shipping rate` → `delivery_cost`
+  - `Total` → `total` (subtotal = total - shipping_rate)
+  - `Fulfillment status` → `status` (Fulfilled→delivered, Not fulfilled→pending, etc.)
+  - `Payment status` → `payment_status`
+  - `Tracking number` → `tracking_number`
+  - `Delivery time` → `estimated_delivery`
+  - `Note from customer` → `admin_notes`
+  - `Item` → order item name
+  - `SKU` → order item sku
+  - `Qty` → order item quantity
+  - `Price` → order item unit_price (line_total = price × qty)
+
+### IMPORTANT — Upload directly to Laravel API (bypass Vercel)
+Vercel has a hard 4.5 MB body size limit on serverless functions. Large CSV files (products: ~3MB+, orders: variable) must be uploaded directly to:
+```
+POST https://api.okelcor.de/api/v1/admin/products/import
+POST https://api.okelcor.de/api/v1/admin/orders/import
+```
+NOT through the Vercel proxy (`okelcor-website.vercel.app/api/...`).
+
+---
+
 ## Schema — Full Table Reference
+
+### `products` (extended with tyre fields)
+| Column | Type | Notes |
+|--------|------|-------|
+| `sku` | varchar(50) | unique |
+| `brand` | varchar(100) | |
+| `name` | varchar(200) | |
+| `size` | varchar(50) | e.g. "205/45R17" |
+| `spec` | varchar(50) | e.g. "88Y" |
+| `season` | enum | Summer / Winter / All Season / All-Terrain |
+| `type` | enum | PCR / TBR / Used / OTR |
+| `price` | decimal(10,2) | |
+| `width` | varchar(10) | nullable, e.g. "205" |
+| `height` | varchar(10) | nullable, e.g. "45" |
+| `rim` | varchar(10) | nullable, e.g. "17" |
+| `load_index` | varchar(10) | nullable, e.g. "88" |
+| `speed_rating` | varchar(5) | nullable, e.g. "Y" |
+| `stock` | int | nullable |
+| `cost_price` | decimal(10,2) | nullable |
+| `is_active` | tinyint | default 1 |
+| `sort_order` | int | default 0 |
 
 ### `orders`
 | Column | Type | Notes |
 |--------|------|-------|
 | `id` | bigint | PK |
-| `ref` | varchar(30) | unique, e.g. `OKL-AB1CD2` |
+| `ref` | varchar(30) | unique, Wix order number or `OKL-XXXXXX` |
 | `customer_name` | varchar(200) | |
 | `customer_email` | varchar(255) | indexed |
 | `customer_phone` | varchar(50) | nullable |
@@ -137,35 +229,34 @@ DELETE /admin/newsletter/{email}
 | `city` | varchar(100) | |
 | `postal_code` | varchar(20) | |
 | `country` | varchar(100) | |
-| `payment_method` | enum | `stripe`, `revolut`, `bank_transfer` — nullable |
+| `payment_method` | varchar | |
 | `subtotal` | decimal(10,2) | |
 | `delivery_cost` | decimal(10,2) | default 0 |
 | `total` | decimal(10,2) | |
-| `status` | enum | `pending`, `confirmed`, `processing`, `shipped`, `delivered`, `cancelled` |
-| `payment_status` | enum | `pending`, `paid`, `failed` |
+| `status` | enum | pending / confirmed / processing / shipped / delivered / cancelled |
+| `payment_status` | enum | unpaid / paid / refunded |
 | `payment_intent_id` | varchar(100) | nullable — Stripe PI id |
-| `mode` | enum | `live`, `manual` |
+| `mode` | enum | live / manual |
 | `carrier` | varchar(100) | nullable |
 | `tracking_number` | varchar(100) | nullable |
 | `estimated_delivery` | date | nullable |
 | `vat_number` | varchar(20) | nullable |
-| `vat_valid` | tinyint | nullable — 1=valid, 0=invalid |
+| `vat_valid` | tinyint | nullable |
 | `admin_notes` | text | nullable |
 | `ip_address` | varchar(45) | nullable, hidden from API |
 
 ### `order_items`
 | Column | Type | Notes |
 |--------|------|-------|
-| `id` | bigint | PK |
 | `order_id` | bigint FK | |
 | `product_id` | bigint | nullable FK |
-| `sku` | varchar(50) | **nullable** |
-| `brand` | varchar | |
-| `name` | varchar | |
+| `sku` | varchar(50) | nullable |
+| `brand` | varchar(100) | |
+| `name` | varchar(200) | |
 | `size` | varchar(50) | |
-| `unit_price` | decimal | |
+| `unit_price` | decimal(10,2) | |
 | `quantity` | int | |
-| `line_total` | decimal | |
+| `line_total` | decimal(10,2) | |
 
 ### `admin_users`
 | Column | Type | Notes |
@@ -215,9 +306,9 @@ Middleware: `admin.role:{roles}` (comma-separated). Applied per route group.
 | Role | Access |
 |------|--------|
 | `super_admin` | Everything including user management |
-| `admin` | Content + operations (no user management) |
+| `admin` | Content + operations + import/export (no user management) |
 | `editor` | Content only (products, articles, categories, hero slides, brands, media, settings) |
-| `order_manager` | Operations only (orders, quote requests, contacts, newsletter) |
+| `order_manager` | Operations only (orders, quote requests, contacts, newsletter, order import/export) |
 
 ### Order Tracking (Public)
 - `GET /api/v1/orders/{ref}` — full order detail by ref; used by customer tracking page with `cache: "no-store"`
@@ -246,6 +337,8 @@ Allowed origins:
 - Validation error (422): `{ "message": "...", "errors": { "field": ["..."] } }`
 - Unauthenticated (401): `{ "message": "Unauthenticated." }`
 - Forbidden (403): `{ "message": "Forbidden. Insufficient role." }`
+- Import success: `{ "data": { "imported": N, "updated": N, "skipped": N, "errors": [] }, "message": "..." }`
+- Import failure: `{ "data": null, "message": "Import failed.", "error": "..." }` — status 422
 
 ---
 
@@ -292,33 +385,34 @@ Video/image upload limit: 50 MB (`max:51200`)
 
 | Item | Notes |
 |------|-------|
-| Email notifications | Order/contact/quote receipts are `Log::info` only. `ORDER_EMAIL` env var is a placeholder. Configure Resend/SMTP on Hostinger. |
+| Email notifications | Order/contact/quote receipts are `Log::info` only. Configure Resend/SMTP on Hostinger. |
 | `GET /admin/products?trashed=only` | Restore works but no dedicated trashed product list endpoint |
 | Stripe webhook registration | Must be done manually in Stripe Dashboard for production |
-| Quote request `PUT` update | Route exists but only `updateStatus` (PATCH) was spec'd — confirm if full update is needed |
 
 ---
 
-## Pending Hostinger Migrations
+## Hostinger Deployment Checklist
 
-Every time new migrations are pushed, run on Hostinger via SSH:
+After every `git push`, SSH into Hostinger and run:
 
 ```bash
+cd ~/domains/takeovercreatives.com/public_html/okelcor-api
 git pull origin main
-composer install --no-dev --optimize-autoloader
-php artisan migrate
-php artisan config:clear && php artisan config:cache
-php artisan route:clear && php artisan route:cache
+php artisan migrate --force
+php artisan route:clear
+php artisan cache:clear
+php artisan config:clear
 ```
 
-**Migrations not yet run on Hostinger (as of 2026-04-15):**
+**Migrations pending on Hostinger (as of 2026-04-16):**
 ```
 2026_04_14_074810_add_payment_intent_fields_to_orders_table
 2026_04_14_084610_make_order_items_sku_nullable
 2026_04_14_113708_add_shipment_fields_to_orders_table
+2026_04_15_000001_add_tyre_fields_to_products_table
 ```
 
-**Required `.env` additions on Hostinger:**
+**Required `.env` on Hostinger:**
 ```
 STRIPE_SECRET_KEY=sk_live_...
 STRIPE_WEBHOOK_SECRET=whsec_...
@@ -330,12 +424,12 @@ STRIPE_WEBHOOK_SECRET=whsec_...
 
 ```
 PHP:     8.3.30
-Laravel: 11.x (Laragon local)
+Laravel: 11.x
 MySQL:   8.0
 DB:      okelcor_cms
 Host:    127.0.0.1:3306
-User:    root (no password)
-upload_max_filesize: 2G
+User:    root (no password, local) / Hostinger DB credentials (production)
+upload_max_filesize: 2G (local) / Hostinger shared hosting limits apply
 post_max_size:       2G
-Web server: Apache (Laragon) — not nginx
+Web server: Apache
 ```
