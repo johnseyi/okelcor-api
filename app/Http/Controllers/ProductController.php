@@ -27,7 +27,7 @@ class ProductController extends Controller
                 ],
                 'filters' => ['brands' => [], 'types' => [], 'seasons' => []],
                 'message' => 'Please search or filter to find products.',
-            ]);
+            ])->withHeaders(['Cache-Control' => 'no-store, no-cache, must-revalidate']);
         }
 
         $query = Product::with('images')->where('is_active', true);
@@ -83,7 +83,7 @@ class ProductController extends Controller
             ],
             'filters' => $filters,
             'message' => 'success',
-        ]);
+        ])->withHeaders(['Cache-Control' => 'no-store, no-cache, must-revalidate']);
     }
 
     public function show(int $id): JsonResponse
@@ -107,7 +107,8 @@ class ProductController extends Controller
             'primary_image' => $r->primary_image ? url('storage/' . $r->primary_image) : null,
         ]);
 
-        return response()->json(['data' => $data]);
+        return response()->json(['data' => $data])
+            ->withHeaders(['Cache-Control' => 'no-store, no-cache, must-revalidate']);
     }
 
     private function formatProduct(Product $p): array
