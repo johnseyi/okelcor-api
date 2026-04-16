@@ -20,6 +20,7 @@ use App\Http\Controllers\Admin\AdminContactController;
 use App\Http\Controllers\Admin\AdminHeroSlideController;
 use App\Http\Controllers\Admin\AdminNewsletterController;
 use App\Http\Controllers\Admin\AdminOrderController;
+use App\Http\Controllers\Admin\OrderImportController;
 use App\Http\Controllers\Admin\AdminProductController;
 use App\Http\Controllers\Admin\AdminQuoteRequestController;
 use App\Http\Controllers\Admin\AdminSettingController;
@@ -204,6 +205,8 @@ Route::prefix('v1')->group(function () {
             Route::patch('contact-messages/{id}/status', [AdminContactController::class, 'updateStatus']);
 
             // Orders
+            Route::post('orders/import', [OrderImportController::class, 'import']);
+            Route::get('orders/export', [OrderImportController::class, 'export']);
             Route::get('orders', [AdminOrderController::class, 'index']);
             Route::get('orders/{id}', [AdminOrderController::class, 'show']);
             Route::put('orders/{id}', [AdminOrderController::class, 'update']);
