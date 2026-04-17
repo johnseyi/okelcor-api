@@ -35,9 +35,11 @@ return [
         ],
     ],
 
-    'stripe' => [
-        'secret'         => env('STRIPE_SECRET_KEY'),
-        'webhook_secret' => env('STRIPE_WEBHOOK_SECRET', ''),
+    'adyen' => [
+        'api_key'          => env('ADYEN_API_KEY'),
+        'merchant_account' => env('ADYEN_MERCHANT_ACCOUNT'),
+        'environment'      => env('ADYEN_ENVIRONMENT', 'test'),
+        'client_key'       => env('ADYEN_CLIENT_KEY'),
     ],
 
     'shipsgo' => [

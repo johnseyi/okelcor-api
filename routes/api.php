@@ -75,10 +75,10 @@ Route::prefix('v1')->group(function () {
 
     // Payments — rate limited: 20/min
     Route::middleware('throttle:payments')->group(function () {
-        Route::post('payments/create-intent', [PaymentController::class, 'createIntent']);
+        Route::post('payments/create-session', [PaymentController::class, 'createSession']);
     });
 
-    // Stripe webhook — no rate limit, raw body required for signature verification
+    // Adyen webhook — no rate limit, excluded from ForceJsonResponse (returns plain [accepted])
     Route::post('payments/webhook', [PaymentController::class, 'webhook'])
         ->withoutMiddleware([\App\Http\Middleware\ForceJsonResponse::class]);
 

@@ -13,7 +13,7 @@ class SettingController extends Controller
         'company_phone',
         'company_fax',
         'company_address',
-        'stripe_enabled',
+        'adyen_enabled',
         'paypal_enabled',
         'klarna_enabled',
         'vat_rate',

@@ -5,40 +5,38 @@ namespace App\Http\Controllers;
 use App\Models\Order;
 use App\Models\OrderItem;
 use App\Models\Product;
-use App\Services\StripeService;
+use App\Services\AdyenService;
 use App\Services\VatValidationService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
-use Stripe\Exception\SignatureVerificationException;
-use Stripe\WebhookSignature;
 
 class PaymentController extends Controller
 {
     public function __construct(
-        private StripeService $stripeService,
+        private AdyenService $adyenService,
         private VatValidationService $vatService,
     ) {}
 
     /**
-     * POST /api/v1/payments/create-intent
+     * POST /api/v1/payments/create-session
      *
-     * Accepts the frontend cart body, saves a pending order, creates a Stripe
-     * PaymentIntent, and returns only the client_secret for client-side confirmation.
+     * Saves a pending order, creates an Adyen payment session, and returns the
+     * session data for the frontend Drop-in / Components integration.
      *
      * Request body:
      * {
      *   "delivery": { "name", "email", "address", "city", "postalCode", "country", "phone" },
-     *   "paymentMethod": "card",
+     *   "paymentMethod": "adyen",
      *   "vat_number": "DE...",   (optional)
      *   "items": [
      *     { "product": { "id", "brand", "name", "size", "price" }, "quantity": 4 }
      *   ]
      * }
      */
-    public function createIntent(Request $request): JsonResponse
+    public function createSession(Request $request): JsonResponse
     {
         $validated = $request->validate([
             'delivery'               => ['required', 'array'],
@@ -64,7 +62,6 @@ class PaymentController extends Controller
         $delivery = $validated['delivery'];
         $items    = $validated['items'];
 
-        // --- VAT validation (optional) ---
         $vatNumber = $validated['vat_number'] ?? null;
         $vatValid  = null;
         if ($vatNumber) {
@@ -72,7 +69,7 @@ class PaymentController extends Controller
             $vatValid  = $vatResult['valid'] ? 1 : 0;
         }
 
-        // --- Calculate total using DB prices (prevents client-side price manipulation) ---
+        // Use DB prices to prevent client-side price manipulation
         $productIds = collect($items)->pluck('product.id')->unique()->values()->all();
         $products   = Product::whereIn('id', $productIds)->get()->keyBy('id');
 
@@ -85,7 +82,6 @@ class PaymentController extends Controller
             $quantity    = (int) $item['quantity'];
             $dbProduct   = $products->get($productId);
 
-            // Use authoritative DB price; fall back to client-provided price only if product not found
             $unitPrice = $dbProduct ? (float) $dbProduct->price : (float) $productData['price'];
             $lineTotal = $unitPrice * $quantity;
             $subtotal += $lineTotal;
@@ -104,7 +100,6 @@ class PaymentController extends Controller
 
         $ref = $this->generateRef();
 
-        // --- Save pending order + items, then create PaymentIntent atomically ---
         try {
             $order = DB::transaction(function () use (
                 $delivery, $lineItems, $subtotal, $ref, $request, $vatNumber, $vatValid
@@ -118,7 +113,7 @@ class PaymentController extends Controller
                     'city'           => $delivery['city'],
                     'postal_code'    => $delivery['postalCode'],
                     'country'        => $delivery['country'],
-                    'payment_method' => 'stripe',
+                    'payment_method' => 'adyen',
                     'subtotal'       => $subtotal,
                     'delivery_cost'  => 0.00,
                     'total'          => $subtotal,
@@ -137,29 +132,21 @@ class PaymentController extends Controller
                 return $order;
             });
 
-            // Create Stripe PaymentIntent (outside DB transaction — Stripe call is not rollback-able)
-            $amountCents = (int) round($subtotal * 100);
-            $result = $this->stripeService->createPaymentIntent($amountCents, 'eur', [
-                'order_ref'      => $ref,
-                'customer_email' => $delivery['email'],
+            $result = $this->adyenService->createPaymentSession(
+                $subtotal, 'eur', $ref, $delivery['email']
+            );
+
+            $order->update(['payment_session_id' => $result['session_id']]);
+
+            Log::info('Adyen session created', [
+                'ref'        => $ref,
+                'session_id' => $result['session_id'],
+                'amount'     => $subtotal,
             ]);
 
-            // Store the payment intent ID on the order
-            $order->update(['payment_intent_id' => $result['payment_intent_id']]);
-
-            Log::info('Stripe PaymentIntent created', [
-                'ref'               => $ref,
-                'payment_intent_id' => $result['payment_intent_id'],
-                'amount_cents'      => $amountCents,
-            ]);
-
-            return response()->json([
-                'data' => [
-                    'client_secret' => $result['client_secret'],
-                ],
-            ], 201);
+            return response()->json(['data' => $result], 201);
         } catch (\Throwable $e) {
-            Log::error('createIntent failed', ['error' => $e->getMessage(), 'ref' => $ref]);
+            Log::error('createSession failed', ['error' => $e->getMessage(), 'ref' => $ref]);
 
             return response()->json([
                 'message' => 'Payment gateway error. Please try again.',
@@ -170,72 +157,56 @@ class PaymentController extends Controller
     /**
      * POST /api/v1/payments/webhook
      *
-     * Handles Stripe webhook events. Raw body required for signature verification.
-     * Excluded from ForceJsonResponse middleware (see routes/api.php).
+     * Handles Adyen webhook notifications (Standard Notification format).
+     * Adyen expects a "[accepted]" plain-text response on success.
      */
-    public function webhook(Request $request): JsonResponse
+    public function webhook(Request $request): \Illuminate\Http\Response|JsonResponse
     {
-        $payload       = $request->getContent();
-        $sigHeader     = $request->header('Stripe-Signature');
-        $webhookSecret = config('services.stripe.webhook_secret');
+        $payload = $request->all();
 
-        if ($webhookSecret) {
-            try {
-                WebhookSignature::verifyHeader($payload, $sigHeader, $webhookSecret);
-            } catch (SignatureVerificationException $e) {
-                return response()->json(['message' => 'Invalid signature.'], 400);
-            }
-        }
-
-        $event = json_decode($payload, true);
-
-        if (json_last_error() !== JSON_ERROR_NONE) {
+        if (empty($payload['notificationItems'])) {
             return response()->json(['message' => 'Invalid payload.'], 400);
         }
 
-        $type       = $event['type'] ?? '';
-        $intentData = $event['data']['object'] ?? [];
+        foreach ($payload['notificationItems'] as $notificationItem) {
+            $item = $notificationItem['NotificationRequestItem'] ?? [];
+            $this->handleNotification($item);
+        }
 
-        match ($type) {
-            'payment_intent.succeeded'      => $this->handlePaymentSucceeded($intentData),
-            'payment_intent.payment_failed' => $this->handlePaymentFailed($intentData),
-            default                         => null,
+        return response('[accepted]', 200)->header('Content-Type', 'text/plain');
+    }
+
+    private function handleNotification(array $item): void
+    {
+        $eventCode = $item['eventCode'] ?? '';
+        $success   = ($item['success'] ?? 'false') === 'true';
+        $ref       = $item['merchantReference'] ?? null;
+        $pspRef    = $item['pspReference'] ?? null;
+
+        if (! $ref) {
+            return;
+        }
+
+        match ($eventCode) {
+            'AUTHORISATION' => $success
+                ? Order::where('ref', $ref)->update([
+                    'payment_status'    => 'paid',
+                    'payment_session_id' => $pspRef,
+                    'status'             => 'processing',
+                ])
+                : Order::where('ref', $ref)->update(['payment_status' => 'failed']),
+            'CANCELLATION', 'CANCEL_OR_REFUND' => Order::where('ref', $ref)->update([
+                'payment_status' => 'refunded',
+            ]),
+            default => null,
         };
 
-        return response()->json(['received' => true]);
-    }
-
-    private function handlePaymentSucceeded(array $intent): void
-    {
-        $orderRef = $intent['metadata']['order_ref'] ?? null;
-
-        if (! $orderRef) {
-            return;
-        }
-
-        Order::where('ref', $orderRef)->update([
-            'payment_status'    => 'paid',
-            'payment_intent_id' => $intent['id'] ?? null,
-            'status'            => 'processing',
+        Log::info('Adyen notification', [
+            'event'   => $eventCode,
+            'success' => $success,
+            'ref'     => $ref,
+            'psp'     => $pspRef,
         ]);
-
-        Log::info('Payment succeeded', ['ref' => $orderRef, 'intent' => $intent['id'] ?? null]);
-    }
-
-    private function handlePaymentFailed(array $intent): void
-    {
-        $orderRef = $intent['metadata']['order_ref'] ?? null;
-
-        if (! $orderRef) {
-            return;
-        }
-
-        Order::where('ref', $orderRef)->update([
-            'payment_status'    => 'failed',
-            'payment_intent_id' => $intent['id'] ?? null,
-        ]);
-
-        Log::warning('Payment failed', ['ref' => $orderRef, 'intent' => $intent['id'] ?? null]);
     }
 
     private function generateRef(): string

@@ -4,8 +4,58 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "21dcdc263606c990c3f8df9f26101c36",
+    "content-hash": "e7ce3c837199bfe33b45102103bc2411",
     "packages": [
+        {
+            "name": "adyen/php-api-library",
+            "version": "v29.0.0",
+            "source": {
+                "type": "git",
+                "url": "https://github.com/Adyen/adyen-php-api-library.git",
+                "reference": "62eacb8222f58b1e6ae15d27e015dd4082cf72ec"
+            },
+            "dist": {
+                "type": "zip",
+                "url": "https://api.github.com/repos/Adyen/adyen-php-api-library/zipball/62eacb8222f58b1e6ae15d27e015dd4082cf72ec",
+                "reference": "62eacb8222f58b1e6ae15d27e015dd4082cf72ec",
+                "shasum": ""
+            },
+            "require": {
+                "ext-ctype": "*",
+                "ext-curl": "*",
+                "ext-json": "*",
+                "ext-mbstring": "*",
+                "ext-openssl": "*",
+                "php": ">=7.3"
+            },
+            "require-dev": {
+                "dms/phpunit-arraysubset-asserts": "0.5.0",
+                "friendsofphp/php-cs-fixer": "*",
+                "php-coveralls/php-coveralls": "2.7.0",
+                "phpunit/phpunit": "9.6.33",
+                "squizlabs/php_codesniffer": "3.10.2"
+            },
+            "type": "library",
+            "autoload": {
+                "psr-4": {
+                    "Adyen\\": "src/Adyen/"
+                }
+            },
+            "notification-url": "https://packagist.org/downloads/",
+            "license": [
+                "MIT"
+            ],
+            "description": "A PHP client library for accessing Adyen APIs",
+            "homepage": "https://github.com/Adyen/adyen-php-api-library",
+            "keywords": [
+                "adyen"
+            ],
+            "support": {
+                "issues": "https://github.com/Adyen/adyen-php-api-library/issues",
+                "source": "https://github.com/Adyen/adyen-php-api-library/tree/v29.0.0"
+            },
+            "time": "2026-01-28T14:50:22+00:00"
+        },
         {
             "name": "brick/math",
             "version": "0.14.8",
@@ -3587,68 +3637,6 @@
                 "source": "https://github.com/ramsey/uuid/tree/4.9.2"
             },
             "time": "2025-12-14T04:43:48+00:00"
-        },
-        {
-            "name": "stripe/stripe-php",
-            "version": "v20.0.0",
-            "source": {
-                "type": "git",
-                "url": "https://github.com/stripe/stripe-php.git",
-                "reference": "7338bd140e641b1f9c7cb602e2de971e14db6b3b"
-            },
-            "dist": {
-                "type": "zip",
-                "url": "https://api.github.com/repos/stripe/stripe-php/zipball/7338bd140e641b1f9c7cb602e2de971e14db6b3b",
-                "reference": "7338bd140e641b1f9c7cb602e2de971e14db6b3b",
-                "shasum": ""
-            },
-            "require": {
-                "ext-curl": "*",
-                "ext-json": "*",
-                "ext-mbstring": "*",
-                "php": ">=7.2.0"
-            },
-            "require-dev": {
-                "friendsofphp/php-cs-fixer": "3.94.0",
-                "phpstan/phpstan": "^1.2",
-                "phpunit/phpunit": "^5.7 || ^9.0"
-            },
-            "type": "library",
-            "extra": {
-                "branch-alias": {
-                    "dev-master": "2.0-dev"
-                }
-            },
-            "autoload": {
-                "files": [
-                    "lib/version_check.php"
-                ],
-                "psr-4": {
-                    "Stripe\\": "lib/"
-                }
-            },
-            "notification-url": "https://packagist.org/downloads/",
-            "license": [
-                "MIT"
-            ],
-            "authors": [
-                {
-                    "name": "Stripe and contributors",
-                    "homepage": "https://github.com/stripe/stripe-php/contributors"
-                }
-            ],
-            "description": "Stripe PHP Library",
-            "homepage": "https://stripe.com/",
-            "keywords": [
-                "api",
-                "payment processing",
-                "stripe"
-            ],
-            "support": {
-                "issues": "https://github.com/stripe/stripe-php/issues",
-                "source": "https://github.com/stripe/stripe-php/tree/v20.0.0"
-            },
-            "time": "2026-03-26T01:57:48+00:00"
         },
         {
             "name": "symfony/clock",

@@ -159,7 +159,7 @@ class AdminOrderController extends Controller
             'estimated_delivery' => $o->estimated_delivery,
             'eta'                => $o->eta,
             'payment_status'     => $o->payment_status,
-            'payment_intent_id'  => $o->payment_intent_id,
+            'payment_session_id' => $o->payment_session_id,
             'created_at'         => $o->created_at?->toIso8601String(),
             'updated_at'         => $o->updated_at?->toIso8601String(),
             'items'          => $o->items->map(fn ($i) => [
