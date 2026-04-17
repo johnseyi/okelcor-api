@@ -113,9 +113,18 @@ class ImportWixOrders extends Command
                 $orderData = $this->mapOrder($ref, $group['order']);
                 $items     = $this->mapItems($group['rows']);
 
-                DB::transaction(function () use ($ref, $orderData, $items, &$imported, &$updated) {
+                // Extract created_at before passing to updateOrCreate (not in $fillable)
+                $createdAt = $orderData['created_at'];
+                unset($orderData['created_at']);
+
+                DB::transaction(function () use ($ref, $orderData, $createdAt, $items, &$imported, &$updated) {
                     $exists = Order::where('ref', $ref)->exists();
                     $order  = Order::updateOrCreate(['ref' => $ref], $orderData);
+
+                    // Preserve the original Wix order date for new records
+                    if (! $exists) {
+                        DB::table('orders')->where('id', $order->id)->update(['created_at' => $createdAt]);
+                    }
 
                     // Replace items on every run to stay in sync
                     $order->items()->delete();
@@ -220,6 +229,7 @@ class ImportWixOrders extends Command
             'admin_notes'        => $notes,
             'tracking_number'    => $trackingNumber,
             'estimated_delivery' => $estimatedDelivery,
+            'created_at'         => $createdAt,
         ];
     }
 
