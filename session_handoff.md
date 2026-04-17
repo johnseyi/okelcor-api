@@ -1,5 +1,5 @@
 # Session Handoff — Okelcor API
-Last updated: 2026-04-16
+Last updated: 2026-04-18
 
 ## Project
 Laravel 11 / PHP 8.3 REST API for Okelcor B2B tyre wholesale.
@@ -12,14 +12,14 @@ Laravel 11 / PHP 8.3 REST API for Okelcor B2B tyre wholesale.
 
 ---
 
-## Current Route Count: 90+
+## Current Route Count: 95+
 
 ### Public routes (no auth)
 ```
-GET    /api/v1/products                  ← requires at least one filter param
+GET    /api/v1/products
 GET    /api/v1/products/{id}
-GET    /api/v1/products/brands           ← distinct brand list for filter dropdown
-GET    /api/v1/products/specs            ← distinct widths/heights/rims/load_indexes/speed_ratings
+GET    /api/v1/products/brands
+GET    /api/v1/products/specs
 GET    /api/v1/articles
 GET    /api/v1/articles/{slug}
 GET    /api/v1/categories
@@ -29,9 +29,10 @@ GET    /api/v1/settings/public
 GET    /api/v1/settings
 GET    /api/v1/search
 POST   /api/v1/vat/validate
-POST   /api/v1/payments/create-intent
-POST   /api/v1/payments/webhook          ← excluded from ForceJsonResponse (raw body for Stripe sig)
-GET    /api/v1/orders                    ← requires ?email=
+POST   /api/v1/payments/create-session     ← was create-intent (now Adyen)
+POST   /api/v1/payments/webhook            ← Adyen Standard Notification handler
+GET    /api/v1/tracking/{container}        ← auto-detects DHL vs sea freight
+GET    /api/v1/orders                      ← requires ?email=
 GET    /api/v1/orders/{ref}
 POST   /api/v1/orders
 POST   /api/v1/contact
@@ -82,20 +83,20 @@ GET    /admin/products
 POST   /admin/products
 GET    /admin/products/{id}
 PUT    /admin/products/{id}
-DELETE /admin/products/{id}             ← soft delete, 204
+DELETE /admin/products/{id}
 POST   /admin/products/{id}/restore
 POST   /admin/products/{id}/images
 DELETE /admin/products/{id}/images/{image}
 
 # Product CSV import/export — super_admin, admin only
-POST   /admin/products/import           ← upload CSV file (field: "file"), 50MB max
-GET    /admin/products/export           ← streams CSV download
+POST   /admin/products/import
+GET    /admin/products/export
 
 GET    /admin/articles
 POST   /admin/articles
 GET    /admin/articles/{id}
 PUT    /admin/articles/{id}
-DELETE /admin/articles/{id}             ← soft delete
+DELETE /admin/articles/{id}
 POST   /admin/articles/{id}/image
 POST   /admin/articles/{id}/restore
 
@@ -126,12 +127,13 @@ PUT    /admin/settings
 # Operations — super_admin, admin, order_manager
 GET    /admin/orders
 GET    /admin/orders/{id}
-PUT    /admin/orders/{id}               ← full update incl. shipment fields
-PATCH  /admin/orders/{id}/status       ← lightweight status + shipment update
+PUT    /admin/orders/{id}
+PATCH  /admin/orders/{id}/status
+DELETE /admin/orders/{id}               ← super_admin, admin only
 
-# Order CSV import/export — super_admin, admin, order_manager
-POST   /admin/orders/import             ← upload Wix CSV (field: "file"), 50MB max
-GET    /admin/orders/export             ← streams CSV download
+# Order CSV import/export
+POST   /admin/orders/import
+GET    /admin/orders/export
 
 GET    /admin/quote-requests
 GET    /admin/quote-requests/{id}
@@ -144,6 +146,10 @@ PATCH  /admin/contact-messages/{id}/status
 
 GET    /admin/newsletter
 DELETE /admin/newsletter/{email}
+
+# Supplier intelligence — super_admin, admin, order_manager
+GET    /admin/supplier/search?q={query}&limit={1-50}
+GET    /admin/supplier/alibaba-link?q={query}
 ```
 
 ---
@@ -157,11 +163,27 @@ DELETE /admin/newsletter/{email}
 - Pattern: `205/45R 17 88Y` (space between R and rim number)
 - Detects season from name keywords (Winter, All Season, All-Terrain, Summer)
 - Detects type: PCR (default) or TBR (keywords: Truck, Bus, TBR, Heavy, Commercial, LT, Cargo)
+- **Image download:** reads `productimageurl` column (semicolon-separated filenames from Wix CDN)
+  - Downloads image 1 → stores to `storage/app/public/products/{uuid}.jpg` → saves relative path to `primary_image`
+  - Downloads image 2 → creates `ProductImage` gallery record
+  - Skips silently on failure — product data still imports
+  - `set_time_limit(600)` + `memory_limit 512M` applied for large runs
+  - Logs every 100 image downloads; summary table includes "Images downloaded" column
 - Response: `{ data: { imported, updated, skipped, errors: [] } }`
+
+### Standalone image download command
+```bash
+php artisan import:product-images {file}
+```
+- Downloads missing images for products already in DB that have `primary_image IS NULL`
+- Safe to re-run — only targets null `primary_image`
+- Shows progress bar + downloaded/failed summary
 
 ### Order import (`POST /admin/orders/import`)
 - Artisan command: `php artisan import:wix-orders {file}`
+- Logic lives in `WixOrderImportService` — controller calls service directly (no Artisan::call)
 - Upserts on `order number` (Wix ref) — safe to re-run, items replaced each time
+- BOM stripping applied to CSV headers
 - Wix CSV column mapping (exact names Wix uses):
   - `Order number` → `ref`
   - `Contact email` → `customer_email`
@@ -169,34 +191,31 @@ DELETE /admin/newsletter/{email}
   - `Billing phone` → `customer_phone`
   - `Billing address` → `address`
   - `Billing city` → `city`
-  - `Billing zip/postal code` → `postal_code` (note: slash in column name)
+  - `Billing zip/postal code` → `postal_code`
   - `Billing country` → `country`
   - `Payment method` → `payment_method`
   - `Shipping rate` → `delivery_cost`
-  - `Total` → `total` (subtotal = total - shipping_rate)
-  - `Fulfillment status` → `status` (Fulfilled→delivered, Not fulfilled→pending, etc.)
+  - `Total` → `total`
+  - `Fulfillment status` → `status`
   - `Payment status` → `payment_status`
   - `Tracking number` → `tracking_number`
   - `Delivery time` → `estimated_delivery`
   - `Note from customer` → `admin_notes`
-  - `Item` → order item name
-  - `SKU` → order item sku
-  - `Qty` → order item quantity
-  - `Price` → order item unit_price (line_total = price × qty)
+  - `Item` / `SKU` / `Qty` / `Price` → order items
 
 ### IMPORTANT — Upload directly to Laravel API (bypass Vercel)
-Vercel has a hard 4.5 MB body size limit on serverless functions. Large CSV files (products: ~3MB+, orders: variable) must be uploaded directly to:
+Vercel has a hard 4.5 MB body size limit. Large CSV files must be uploaded directly to:
 ```
 POST https://api.okelcor.de/api/v1/admin/products/import
 POST https://api.okelcor.de/api/v1/admin/orders/import
 ```
-NOT through the Vercel proxy (`okelcor-website.vercel.app/api/...`).
+NOT through the Vercel proxy.
 
 ---
 
 ## Schema — Full Table Reference
 
-### `products` (extended with tyre fields)
+### `products`
 | Column | Type | Notes |
 |--------|------|-------|
 | `sku` | varchar(50) | unique |
@@ -207,11 +226,12 @@ NOT through the Vercel proxy (`okelcor-website.vercel.app/api/...`).
 | `season` | enum | Summer / Winter / All Season / All-Terrain |
 | `type` | enum | PCR / TBR / Used / OTR |
 | `price` | decimal(10,2) | |
-| `width` | varchar(10) | nullable, e.g. "205" |
-| `height` | varchar(10) | nullable, e.g. "45" |
-| `rim` | varchar(10) | nullable, e.g. "17" |
-| `load_index` | varchar(10) | nullable, e.g. "88" |
-| `speed_rating` | varchar(5) | nullable, e.g. "Y" |
+| `primary_image` | varchar | nullable, relative path e.g. `products/uuid.jpg` |
+| `width` | varchar(10) | nullable |
+| `height` | varchar(10) | nullable |
+| `rim` | varchar(10) | nullable |
+| `load_index` | varchar(10) | nullable |
+| `speed_rating` | varchar(5) | nullable |
 | `stock` | int | nullable |
 | `cost_price` | decimal(10,2) | nullable |
 | `is_active` | tinyint | default 1 |
@@ -229,17 +249,21 @@ NOT through the Vercel proxy (`okelcor-website.vercel.app/api/...`).
 | `city` | varchar(100) | |
 | `postal_code` | varchar(20) | |
 | `country` | varchar(100) | |
-| `payment_method` | varchar | |
+| `payment_method` | varchar(100) | nullable |
 | `subtotal` | decimal(10,2) | |
 | `delivery_cost` | decimal(10,2) | default 0 |
 | `total` | decimal(10,2) | |
 | `status` | enum | pending / confirmed / processing / shipped / delivered / cancelled |
-| `payment_status` | enum | unpaid / paid / refunded |
-| `payment_intent_id` | varchar(100) | nullable — Stripe PI id |
+| `payment_status` | enum | pending / paid / failed / refunded |
+| `payment_session_id` | varchar(100) | nullable — Adyen session/PSP reference |
 | `mode` | enum | live / manual |
 | `carrier` | varchar(100) | nullable |
+| `carrier_type` | enum | sea / air / dhl / road — nullable |
 | `tracking_number` | varchar(100) | nullable |
+| `container_number` | varchar(30) | nullable |
+| `tracking_status` | varchar(50) | nullable |
 | `estimated_delivery` | date | nullable |
+| `eta` | date | nullable |
 | `vat_number` | varchar(20) | nullable |
 | `vat_valid` | tinyint | nullable |
 | `admin_notes` | text | nullable |
@@ -270,51 +294,83 @@ Locales ENUM: `en`, `de`, `fr`, `es`
 
 ## Features & Integrations
 
-### Stripe Payment Gateway
-- Package: `stripe/stripe-php` v20
-- Config: `config/services.php` → `stripe.secret`, `stripe.webhook_secret`
-- Env vars required on production: `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`
-- `StripeService::createPaymentIntent(int $cents, string $currency, array $metadata)`
+### Adyen Payment Gateway (replaced Stripe)
+- Package: `adyen/php-api-library` v29
+- Config: `config/services.php` → `adyen.api_key`, `adyen.merchant_account`, `adyen.environment`, `adyen.client_key`
+- Env vars: `ADYEN_API_KEY`, `ADYEN_MERCHANT_ACCOUNT`, `ADYEN_ENVIRONMENT` (test/live), `ADYEN_CLIENT_KEY`
+- `AdyenService::createPaymentSession(float $amount, string $currency, string $orderRef, string $customerEmail): array`
 
 **Flow:**
-1. Frontend sends cart to `POST /api/v1/payments/create-intent`
-2. Backend validates, looks up DB prices (prevents client-side price manipulation), saves a `pending` order with `mode=live`, creates Stripe PaymentIntent
-3. Returns `{ "data": { "client_secret": "pi_xxx_secret_xxx" } }`
-4. Frontend calls `stripe.confirmCardPayment(client_secret)` client-side
-5. Stripe sends webhook to `POST /api/v1/payments/webhook`
-6. Backend verifies `Stripe-Signature` header, updates order: `payment_intent.succeeded` → `status=processing, payment_status=paid`; `payment_intent.payment_failed` → `payment_status=failed`
+1. Frontend sends cart to `POST /api/v1/payments/create-session`
+2. Backend validates, looks up DB prices, saves `pending` order with `mode=live`, calls Adyen Sessions API
+3. Returns `{ "data": { "session_id": "...", "session_data": "...", "client_key": "..." } }`
+4. Frontend initialises Adyen Drop-in/Components with `session_id`, `session_data`, `client_key`
+5. Adyen sends webhook to `POST /api/v1/payments/webhook`
+6. Backend handles `AUTHORISATION` event → `status=processing, payment_status=paid`; also handles `CANCELLATION`/`CANCEL_OR_REFUND` → `payment_status=refunded`
 
-**Webhook registration:** In Stripe Dashboard → Developers → Webhooks, add `https://api.okelcor.de/api/v1/payments/webhook` listening for `payment_intent.succeeded` and `payment_intent.payment_failed`.
+**Webhook response:** must return plain text `[accepted]` — not JSON. Route is excluded from `ForceJsonResponse` middleware.
+
+### Order Confirmation Emails
+- `OrderConfirmation` mailable → sent to customer on `POST /api/v1/orders`
+- `OrderReceived` mailable → sent to `ORDER_EMAIL` env var on `POST /api/v1/orders`
+- Both views: `resources/views/emails/order-confirmation.blade.php` and `order-received.blade.php`
+- Shipment fields (carrier, tracking_number, container_number, ETA) shown conditionally when set
+- Tracking URL: `{FRONTEND_URL}/account/orders/{ref}`
+- Env var required: `ORDER_EMAIL=orders@okelcor.de`
+
+### Container Tracking (Public)
+- `GET /api/v1/tracking/{container}` — auto-detects carrier by tracking number format
+- **DHL** detected by regex: 10-12 digits, `JD…`, `1Z…`, `GM…` prefix → calls `DhlTrackingService`
+- **Sea freight** (everything else) → calls `ShipsGoService`
+- Response always includes `carrier` field: `"DHL"` or `"Sea Freight"`
+
+**ShipsGo two-step flow:**
+1. `POST /v2/ocean/shipments` — registers container for tracking (idempotent)
+2. `GET /v2/ocean/shipments?filters[container_no]=eq:{container}` — fetches status
+- Auth: `X-Shipsgo-User-Token` header
+- First call may return null fields — ShipsGo takes minutes/hours to fetch live data from shipping line
+
+**DHL:**
+- Endpoint: `GET https://api-eu.dhl.com/track/shipments?trackingNumber={n}`
+- Auth: `DHL-API-Key` header
+- Returns: `{ status, location, eta, events[] }`
+
+### Supplier Intelligence
+- `GET /api/v1/admin/supplier/search?q={query}&limit={1-50}` — proxies eBay DE Browse API
+- `GET /api/v1/admin/supplier/alibaba-link?q={query}` — returns Alibaba search URL (open in new tab)
+- `EbayService`: client credentials OAuth token cached for ~2 hrs, searches category `66471` (tyres) on `EBAY_DE` marketplace
+- Env vars: `EBAY_CLIENT_ID`, `EBAY_CLIENT_SECRET`, `EBAY_ENVIRONMENT` (sandbox/production)
+- Sandbox returns dummy data — switch to `EBAY_ENVIRONMENT=production` with live credentials for real results
 
 ### VAT Validation (EU VIES REST)
 - No SOAP, no third-party package — direct HTTP via Laravel `Http` facade
 - Endpoint: `POST /api/v1/vat/validate` body: `{ "vat_number": "DE123456789" }`
 - Calls `https://ec.europa.eu/taxation_customs/vies/rest-api/ms/{CC}/vat/{number}`
 - Returns: `{ valid, name, address, country_code, vat_number, message }`
-- VAT validation also runs automatically on `POST /orders` and `POST /quote-requests` when `vat_number` is provided
+- Also runs automatically on `POST /orders` and `POST /quote-requests` when `vat_number` is provided
 
 ### Multilingual Content
 - Locales: `en`, `de`, `fr`, `es`
 - Pass `?locale=en|de|fr|es` on public content endpoints
-- Articles: EN fallback — if requested locale has no translation, EN translation is returned
-- Hero slides: locale-aware via `?locale=` param
-- Categories: translation lookup via `?locale=`
+- Articles: EN fallback if requested locale has no translation
+- Hero slides + categories: locale-aware via `?locale=` param
 
 ### Role-Based Access Control
-Middleware: `admin.role:{roles}` (comma-separated). Applied per route group.
+Middleware: `admin.role:{roles}` (comma-separated).
 
 | Role | Access |
 |------|--------|
 | `super_admin` | Everything including user management |
 | `admin` | Content + operations + import/export (no user management) |
 | `editor` | Content only (products, articles, categories, hero slides, brands, media, settings) |
-| `order_manager` | Operations only (orders, quote requests, contacts, newsletter, order import/export) |
+| `order_manager` | Operations only (orders, quote requests, contacts, newsletter, import/export, supplier search) |
 
-### Order Tracking (Public)
-- `GET /api/v1/orders/{ref}` — full order detail by ref; used by customer tracking page with `cache: "no-store"`
-- `GET /api/v1/orders?email={email}` — list all orders for an email; used for order history
-- Both return identical field shapes including `status`, `carrier`, `tracking_number`, `estimated_delivery`
-- Admin updates status via `PATCH /admin/orders/{id}/status` → customers see changes immediately on next page load
+### Public Order API — fields returned
+`GET /api/v1/orders/{ref}` and `GET /api/v1/orders?email=` both return:
+```
+ref, status, payment_status, payment_method, subtotal, delivery_cost, total,
+carrier, tracking_number, container_number, estimated_delivery, eta, created_at, items[]
+```
 
 ### CORS
 Allowed origins:
@@ -332,13 +388,12 @@ Allowed origins:
 ```
 
 - `data` — always present (object or array)
-- `meta` — on paginated lists: `{ current_page, per_page, total, last_page }`; on non-paginated: `{ total }` or `{}`
+- `meta` — on paginated lists: `{ current_page, per_page, total, last_page }`
 - `message` — `"success"` on reads, descriptive string on writes
 - Validation error (422): `{ "message": "...", "errors": { "field": ["..."] } }`
 - Unauthenticated (401): `{ "message": "Unauthenticated." }`
 - Forbidden (403): `{ "message": "Forbidden. Insufficient role." }`
 - Import success: `{ "data": { "imported": N, "updated": N, "skipped": N, "errors": [] }, "message": "..." }`
-- Import failure: `{ "data": null, "message": "Import failed.", "error": "..." }` — status 422
 
 ---
 
@@ -354,7 +409,7 @@ Allowed origins:
 | `hero_slides.video_url` | relative: `hero/uuid.mp4` | absolute URL |
 
 Storage disk: `public` → `storage/app/public/` → symlinked to `public/storage/`
-Video/image upload limit: 50 MB (`max:51200`)
+Conversion: `url(Storage::url($relativePath))` in controller formatters.
 
 ---
 
@@ -366,6 +421,7 @@ Video/image upload limit: 50 MB (`max:51200`)
 | `Article` | Yes | `POST /admin/articles/{id}/restore` |
 | `Brand` | No (hard delete) | — |
 | `HeroSlide` | No (hard delete) | — |
+| `Order` | No (hard delete) | `DELETE /admin/orders/{id}` — super_admin, admin only |
 
 ---
 
@@ -375,9 +431,19 @@ Video/image upload limit: 50 MB (`max:51200`)
 |-------------|-------|-----------|
 | `search` | 30/min | `GET /search` |
 | `vat` | 10/min | `POST /vat/validate` |
-| `payments` | 20/min | `POST /payments/create-intent` |
+| `payments` | 20/min | `POST /payments/create-session` |
 | `public-form` | 10/hour | `POST /contact`, `POST /orders`, `GET /orders`, `GET /orders/{ref}`, `POST /newsletter/subscribe` |
 | `quote-form` | 5/hour | `POST /quote-requests` |
+
+---
+
+## Artisan Commands
+
+| Command | Purpose |
+|---------|---------|
+| `import:wix-products {file}` | Import products from Wix CSV + download images |
+| `import:product-images {file}` | Download missing images for already-imported products |
+| `import:wix-orders {file}` | Import orders from Wix CSV |
 
 ---
 
@@ -385,9 +451,9 @@ Video/image upload limit: 50 MB (`max:51200`)
 
 | Item | Notes |
 |------|-------|
-| Email notifications | Order/contact/quote receipts are `Log::info` only. Configure Resend/SMTP on Hostinger. |
+| eBay production credentials | Currently sandbox — set `EBAY_ENVIRONMENT=production` with live keys when ready |
+| Adyen webhook HMAC verification | Currently accepts all POST to /payments/webhook — add HMAC check in production |
 | `GET /admin/products?trashed=only` | Restore works but no dedicated trashed product list endpoint |
-| Stripe webhook registration | Must be done manually in Stripe Dashboard for production |
 
 ---
 
@@ -398,24 +464,39 @@ After every `git push`, SSH into Hostinger and run:
 ```bash
 cd ~/domains/takeovercreatives.com/public_html/okelcor-api
 git pull origin main
+composer install --no-dev --optimize-autoloader
 php artisan migrate --force
-php artisan route:clear
-php artisan cache:clear
 php artisan config:clear
+php artisan cache:clear
+php artisan route:clear
 ```
 
-**Migrations pending on Hostinger (as of 2026-04-16):**
-```
-2026_04_14_074810_add_payment_intent_fields_to_orders_table
-2026_04_14_084610_make_order_items_sku_nullable
-2026_04_14_113708_add_shipment_fields_to_orders_table
-2026_04_15_000001_add_tyre_fields_to_products_table
-```
+**All migrations are up to date as of 2026-04-18.**
 
 **Required `.env` on Hostinger:**
-```
-STRIPE_SECRET_KEY=sk_live_...
-STRIPE_WEBHOOK_SECRET=whsec_...
+```env
+# Adyen (replaces Stripe)
+ADYEN_API_KEY=
+ADYEN_MERCHANT_ACCOUNT=
+ADYEN_ENVIRONMENT=test
+ADYEN_CLIENT_KEY=
+
+# Order notifications
+ORDER_EMAIL=orders@okelcor.de
+
+# ShipsGo container tracking
+SHIPSGO_API_KEY=
+
+# DHL tracking
+DHL_API_KEY=
+
+# eBay supplier search
+EBAY_CLIENT_ID=
+EBAY_CLIENT_SECRET=
+EBAY_ENVIRONMENT=sandbox
+
+# Frontend URL (used in email tracking links)
+FRONTEND_URL=https://okelcor.de
 ```
 
 ---
@@ -424,12 +505,10 @@ STRIPE_WEBHOOK_SECRET=whsec_...
 
 ```
 PHP:     8.3.30
-Laravel: 11.x
+Laravel: 13.2.0
 MySQL:   8.0
 DB:      okelcor_cms
 Host:    127.0.0.1:3306
 User:    root (no password, local) / Hostinger DB credentials (production)
-upload_max_filesize: 2G (local) / Hostinger shared hosting limits apply
-post_max_size:       2G
 Web server: Apache
 ```
