@@ -11,17 +11,15 @@ class ShipsGoService
     {
         try {
             $response = Http::withHeaders([
-                'x-api-key'    => config('services.shipsgo.key'),
-                'Content-Type' => 'application/json',
-            ])->post('https://api.shipsgo.com/v2/shipmentlist', [
-                'ContainerNo'      => $containerNumber,
-                'ShippingLineCode' => null,
+                'X-Shipsgo-User-Token' => config('services.shipsgo.key'),
+                'Content-Type'         => 'application/json',
+            ])->get('https://api.shipsgo.com/v2/ocean/shipments', [
+                'filters[container_no]' => 'eq:' . $containerNumber,
             ]);
 
             Log::info('ShipsGo response', [
-                'container' => $containerNumber,
-                'status'    => $response->status(),
-                'body'      => $response->json(),
+                'status' => $response->status(),
+                'body'   => $response->json(),
             ]);
 
             if (! $response->successful()) {
