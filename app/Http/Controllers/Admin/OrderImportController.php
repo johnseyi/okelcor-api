@@ -4,9 +4,9 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\Order;
+use App\Services\WixOrderImportService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Artisan;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class OrderImportController extends Controller
@@ -14,7 +14,7 @@ class OrderImportController extends Controller
     /**
      * POST /api/v1/admin/orders/import
      */
-    public function import(Request $request): JsonResponse
+    public function import(Request $request, WixOrderImportService $service): JsonResponse
     {
         set_time_limit(300);
         ini_set('memory_limit', '256M');
@@ -24,29 +24,16 @@ class OrderImportController extends Controller
         ]);
 
         try {
-            $fullPath = $request->file('file')->getRealPath();
-
-            $exitCode = Artisan::call('import:wix-orders', ['file' => $fullPath]);
-            $output   = Artisan::output();
-
-            if ($exitCode !== 0) {
-                return response()->json([
-                    'data'    => null,
-                    'message' => 'Import failed.',
-                    'error'   => trim($output),
-                ], 422);
-            }
-
-            $counts = $this->parseOutputCounts($output);
+            $result = $service->import($request->file('file')->getRealPath());
 
             return response()->json([
                 'data'    => [
-                    'imported' => $counts['imported'],
-                    'updated'  => $counts['updated'],
-                    'skipped'  => $counts['skipped'],
-                    'errors'   => [],
+                    'imported' => $result['imported'],
+                    'updated'  => $result['updated'],
+                    'skipped'  => $result['skipped'],
+                    'errors'   => $result['errors'],
                 ],
-                'message' => 'Orders imported successfully.',
+                'message' => "Import complete: {$result['imported']} new, {$result['updated']} updated, {$result['skipped']} skipped.",
             ]);
         } catch (\Throwable $e) {
             return response()->json([
@@ -172,16 +159,4 @@ class OrderImportController extends Controller
         ]);
     }
 
-    private function parseOutputCounts(string $output): array
-    {
-        $counts = ['imported' => 0, 'updated' => 0, 'skipped' => 0];
-
-        if (preg_match('/\|\s*(\d+)\s*\|\s*(\d+)\s*\|\s*(\d+)\s*\|/', $output, $m)) {
-            $counts['imported'] = (int) $m[1];
-            $counts['updated']  = (int) $m[2];
-            $counts['skipped']  = (int) $m[3];
-        }
-
-        return $counts;
-    }
 }
