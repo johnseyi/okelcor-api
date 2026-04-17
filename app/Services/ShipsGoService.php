@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 
 class ShipsGoService
 {
@@ -10,9 +11,17 @@ class ShipsGoService
     {
         try {
             $response = Http::withHeaders([
-                'Authorization' => 'Bearer ' . config('services.shipsgo.key'),
-            ])->get('https://api.shipsgo.com/v2/tracking', [
-                'container_number' => $containerNumber,
+                'x-api-key'    => config('services.shipsgo.key'),
+                'Content-Type' => 'application/json',
+            ])->post('https://api.shipsgo.com/v2/shipmentlist', [
+                'ContainerNo'      => $containerNumber,
+                'ShippingLineCode' => null,
+            ]);
+
+            Log::info('ShipsGo response', [
+                'container' => $containerNumber,
+                'status'    => $response->status(),
+                'body'      => $response->json(),
             ]);
 
             if (! $response->successful()) {
@@ -22,11 +31,11 @@ class ShipsGoService
             $data = $response->json();
 
             return [
-                'status'   => $data['status']   ?? null,
-                'vessel'   => $data['vessel']    ?? null,
-                'location' => $data['location']  ?? null,
-                'eta'      => $data['eta']        ?? null,
-                'events'   => $data['events']     ?? [],
+                'status'   => $data['status']         ?? null,
+                'vessel'   => $data['vessel']          ?? null,
+                'location' => $data['location']        ?? null,
+                'eta'      => $data['eta']              ?? null,
+                'events'   => $data['events']           ?? [],
             ];
         } catch (\Throwable) {
             return ['error' => 'Tracking unavailable'];
