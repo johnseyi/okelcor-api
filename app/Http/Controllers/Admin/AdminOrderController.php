@@ -76,6 +76,15 @@ class AdminOrderController extends Controller
         ]);
     }
 
+    public function destroy(int $id): JsonResponse
+    {
+        $order = Order::findOrFail($id);
+        $order->items()->delete();
+        $order->delete();
+
+        return response()->json(['message' => 'Order deleted.'], 200);
+    }
+
     /**
      * PATCH /api/v1/admin/orders/{id}/status
      *
