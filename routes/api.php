@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\ArticleController;
+use App\Http\Controllers\ContainerTrackingController;
 use App\Http\Controllers\PaymentController;
 use App\Http\Controllers\VatController;
 use App\Http\Controllers\BrandController;
@@ -58,6 +59,9 @@ Route::prefix('v1')->group(function () {
     // Site settings (public read-only)
     Route::get('settings/public', [SettingController::class, 'public']);
     Route::get('settings', [SettingController::class, 'index']);
+
+    // Container tracking — public, no auth
+    Route::get('tracking/{container}', ContainerTrackingController::class);
 
     // Search — rate limited: 30/min
     Route::middleware('throttle:search')->group(function () {

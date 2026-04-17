@@ -62,12 +62,14 @@ class AdminOrderController extends Controller
             'status'             => ['required', Rule::in(['pending', 'confirmed', 'processing', 'shipped', 'delivered', 'cancelled'])],
             'carrier'            => ['sometimes', 'nullable', 'string', 'max:100'],
             'tracking_number'    => ['sometimes', 'nullable', 'string', 'max:100'],
+            'container_number'   => ['sometimes', 'nullable', 'string', 'max:30'],
             'estimated_delivery' => ['sometimes', 'nullable', 'date'],
+            'eta'                => ['sometimes', 'nullable', 'date'],
             'admin_notes'        => ['sometimes', 'nullable', 'string'],
         ]);
 
         $order = Order::findOrFail($id);
-        $order->update($request->only(['status', 'carrier', 'tracking_number', 'estimated_delivery', 'admin_notes']));
+        $order->update($request->only(['status', 'carrier', 'tracking_number', 'container_number', 'estimated_delivery', 'eta', 'admin_notes']));
         $order->load('items');
 
         return response()->json([
@@ -97,11 +99,13 @@ class AdminOrderController extends Controller
             'status'             => ['required', Rule::in(['pending', 'confirmed', 'processing', 'shipped', 'delivered', 'cancelled'])],
             'carrier'            => ['sometimes', 'nullable', 'string', 'max:100'],
             'tracking_number'    => ['sometimes', 'nullable', 'string', 'max:100'],
+            'container_number'   => ['sometimes', 'nullable', 'string', 'max:30'],
             'estimated_delivery' => ['sometimes', 'nullable', 'date'],
+            'eta'                => ['sometimes', 'nullable', 'date'],
         ]);
 
         $order = Order::findOrFail($id);
-        $order->update($request->only(['status', 'carrier', 'tracking_number', 'estimated_delivery']));
+        $order->update($request->only(['status', 'carrier', 'tracking_number', 'container_number', 'estimated_delivery', 'eta']));
 
         return response()->json([
             'data'    => [
@@ -110,7 +114,9 @@ class AdminOrderController extends Controller
                 'status'             => $order->status,
                 'carrier'            => $order->carrier,
                 'tracking_number'    => $order->tracking_number,
+                'container_number'   => $order->container_number,
                 'estimated_delivery' => $order->estimated_delivery,
+                'eta'                => $order->eta,
             ],
             'meta'    => [],
             'message' => 'Status updated successfully.',
@@ -148,7 +154,10 @@ class AdminOrderController extends Controller
             'notes'              => $o->admin_notes,
             'carrier'            => $o->carrier,
             'tracking_number'    => $o->tracking_number,
+            'container_number'   => $o->container_number,
+            'tracking_status'    => $o->tracking_status,
             'estimated_delivery' => $o->estimated_delivery,
+            'eta'                => $o->eta,
             'payment_status'     => $o->payment_status,
             'payment_intent_id'  => $o->payment_intent_id,
             'created_at'         => $o->created_at?->toIso8601String(),

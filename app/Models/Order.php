@@ -29,7 +29,10 @@ class Order extends Model
         'payment_intent_id',
         'carrier',
         'tracking_number',
+        'container_number',
+        'tracking_status',
         'estimated_delivery',
+        'eta',
     ];
 
     protected $hidden = [

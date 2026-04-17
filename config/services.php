@@ -40,4 +40,8 @@ return [
         'webhook_secret' => env('STRIPE_WEBHOOK_SECRET', ''),
     ],
 
+    'shipsgo' => [
+        'key' => env('SHIPSGO_API_KEY'),
+    ],
+
 ];
