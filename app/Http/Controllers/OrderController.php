@@ -3,13 +3,15 @@
 namespace App\Http\Controllers;
 
 use App\Http\Requests\StoreOrderRequest;
+use App\Mail\OrderConfirmation;
+use App\Mail\OrderReceived;
 use App\Models\Order;
 use App\Models\OrderItem;
 use App\Services\VatValidationService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Str;
 
 class OrderController extends Controller
@@ -68,10 +70,12 @@ class OrderController extends Controller
             'subtotal'          => (float) $o->subtotal,
             'delivery_cost'     => (float) $o->delivery_cost,
             'total'             => (float) $o->total,
-            'carrier'           => $o->carrier,
-            'tracking_number'   => $o->tracking_number,
+            'carrier'            => $o->carrier,
+            'tracking_number'    => $o->tracking_number,
+            'container_number'   => $o->container_number,
             'estimated_delivery' => $o->estimated_delivery,
-            'created_at'        => $o->created_at?->toIso8601String(),
+            'eta'                => $o->eta,
+            'created_at'         => $o->created_at?->toIso8601String(),
             'items'             => $o->items->map(fn ($i) => [
                 'product_id'   => $i->product_id,
                 'product_name' => $i->name,
@@ -142,8 +146,14 @@ class OrderController extends Controller
             return $order;
         });
 
-        // Notify admin (logged in local dev — configure ORDER_EMAIL env var for prod)
-        Log::info('New order', ['ref' => $ref, 'email' => $order->customer_email, 'total' => $total]);
+        $order->load('items');
+
+        Mail::to($order->customer_email)->send(new OrderConfirmation($order));
+
+        $adminEmail = env('ORDER_EMAIL');
+        if ($adminEmail) {
+            Mail::to($adminEmail)->send(new OrderReceived($order));
+        }
 
         return response()->json([
             'data' => [
