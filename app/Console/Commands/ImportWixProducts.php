@@ -3,7 +3,12 @@
 namespace App\Console\Commands;
 
 use App\Models\Product;
+use App\Models\ProductImage;
 use Illuminate\Console\Command;
+use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 
 class ImportWixProducts extends Command
 {
@@ -11,11 +16,13 @@ class ImportWixProducts extends Command
 
     protected $description = 'Import tyre products from a Wix CSV export';
 
-    // Keywords in the product name that indicate TBR (truck/bus) tyres
     private const TBR_KEYWORDS = ['truck', 'bus', 'tbr', 'heavy', 'commercial', 'lt ', ' lt', 'cargo'];
 
     public function handle(): int
     {
+        set_time_limit(600);
+        ini_set('memory_limit', '512M');
+
         $filePath = $this->argument('file');
 
         if (! file_exists($filePath)) {
@@ -29,19 +36,18 @@ class ImportWixProducts extends Command
             return self::FAILURE;
         }
 
-        // Read header row and normalise column names
-        $rawHeaders = fgetcsv($handle);
-        $headers    = array_map(fn ($h) => strtolower(trim($h)), $rawHeaders);
+        $rawHeaders    = fgetcsv($handle);
+        $rawHeaders[0] = ltrim($rawHeaders[0], "\xEF\xBB\xBF");
+        $headers       = array_map(fn ($h) => strtolower(trim($h)), $rawHeaders);
 
         $this->info("CSV columns detected: " . implode(', ', $headers));
 
-        // Count rows for progress bar
         $totalRows = 0;
         while (fgetcsv($handle) !== false) {
             $totalRows++;
         }
         rewind($handle);
-        fgetcsv($handle); // skip header again
+        fgetcsv($handle); // skip header
 
         if ($totalRows === 0) {
             $this->warn('No data rows found in the CSV.');
@@ -53,11 +59,12 @@ class ImportWixProducts extends Command
         $bar = $this->output->createProgressBar($totalRows);
         $bar->start();
 
-        $imported = 0;
-        $updated  = 0;
-        $skipped  = 0;
-
+        $imported    = 0;
+        $updated     = 0;
+        $skipped     = 0;
+        $imageCount  = 0;
         $upsertBatch = [];
+        $imageMap    = []; // sku => raw semicolon-separated image filename string
         $batchSize   = 200;
 
         while (($row = fgetcsv($handle)) !== false) {
@@ -69,6 +76,14 @@ class ImportWixProducts extends Command
             }
 
             $data = array_combine($headers, $row);
+
+            // Track image URLs keyed by SKU — parsed separately from product data
+            $sku         = trim($data['sku'] ?? $data['field:sku'] ?? '');
+            $rawImageUrl = trim($data['productimageurl'] ?? '');
+            if ($sku !== '' && $rawImageUrl !== '') {
+                $imageMap[$sku] = $rawImageUrl;
+            }
+
             $mapped = $this->mapRow($data);
 
             if ($mapped === null) {
@@ -80,17 +95,18 @@ class ImportWixProducts extends Command
 
             if (count($upsertBatch) >= $batchSize) {
                 [$imp, $upd] = $this->flushBatch($upsertBatch);
-                $imported += $imp;
-                $updated  += $upd;
+                $imported   += $imp;
+                $updated    += $upd;
+                $imageCount += $this->downloadImagesForBatch($upsertBatch, $imageMap);
                 $upsertBatch = [];
             }
         }
 
-        // Flush remaining rows
         if (! empty($upsertBatch)) {
             [$imp, $upd] = $this->flushBatch($upsertBatch);
-            $imported += $imp;
-            $updated  += $upd;
+            $imported   += $imp;
+            $updated    += $upd;
+            $imageCount += $this->downloadImagesForBatch($upsertBatch, $imageMap);
         }
 
         fclose($handle);
@@ -99,17 +115,83 @@ class ImportWixProducts extends Command
 
         $this->info("Import complete.");
         $this->table(
-            ['Imported (new)', 'Updated (existing)', 'Skipped'],
-            [[$imported, $updated, $skipped]]
+            ['Imported (new)', 'Updated (existing)', 'Skipped', 'Images downloaded'],
+            [[$imported, $updated, $skipped, $imageCount]]
         );
 
         return self::SUCCESS;
     }
 
-    /**
-     * Map a single CSV row to a Product attributes array.
-     * Returns null if the row should be skipped.
-     */
+    private function downloadImagesForBatch(array $batch, array $imageMap): int
+    {
+        $skus = array_column($batch, 'sku');
+
+        // Only target products that don't already have a primary image
+        $products = Product::whereIn('sku', $skus)
+            ->whereNull('primary_image')
+            ->get()
+            ->keyBy('sku');
+
+        $count = 0;
+
+        foreach ($products as $sku => $product) {
+            $rawUrls = $imageMap[$sku] ?? null;
+            if (! $rawUrls) {
+                continue;
+            }
+
+            $filenames = array_values(array_filter(array_map('trim', explode(';', $rawUrls))));
+            if (empty($filenames)) {
+                continue;
+            }
+
+            $primaryPath = $this->downloadWixImage($filenames[0]);
+            if (! $primaryPath) {
+                continue;
+            }
+
+            $product->update(['primary_image' => $primaryPath]);
+            $count++;
+
+            if ($count % 100 === 0) {
+                Log::info("import:wix-products downloaded images for {$count} products");
+            }
+
+            // Second image → ProductImage gallery record
+            if (isset($filenames[1])) {
+                $secondPath = $this->downloadWixImage($filenames[1]);
+                if ($secondPath) {
+                    ProductImage::create([
+                        'product_id' => $product->id,
+                        'path'       => $secondPath,
+                        'sort_order' => 1,
+                    ]);
+                }
+            }
+        }
+
+        return $count;
+    }
+
+    private function downloadWixImage(string $filename): ?string
+    {
+        try {
+            $url      = 'https://static.wixstatic.com/media/' . ltrim($filename, '/');
+            $response = Http::timeout(30)->get($url);
+
+            if (! $response->ok()) {
+                return null;
+            }
+
+            $path = 'products/' . Str::uuid() . '.jpg';
+            Storage::disk('public')->put($path, $response->body());
+
+            return $path;
+        } catch (\Throwable) {
+            return null;
+        }
+    }
+
     private function mapRow(array $data): ?array
     {
         $sku = trim($data['sku'] ?? $data['field:sku'] ?? '');
@@ -125,8 +207,7 @@ class ImportWixProducts extends Command
         $rawStock   = $this->parseInt($data['inventory'] ?? $data['field:stock'] ?? $data['stock'] ?? null);
         $rawCost    = $this->parseDecimal($data['cost'] ?? $data['cost price'] ?? $data['field:cost'] ?? null);
 
-        // Extract tyre dimensions from the product name
-        $parsed     = $this->parseTyreName($rawName);
+        $parsed      = $this->parseTyreName($rawName);
         $width       = $parsed['width'];
         $height      = $parsed['height'];
         $rim         = $parsed['rim'];
@@ -134,34 +215,25 @@ class ImportWixProducts extends Command
         $speedRating = $parsed['speed_rating'];
         $season      = $parsed['season'];
 
-        // Determine size string
         $size = ($width && $height && $rim)
             ? "{$width}/{$height}R{$rim}"
             : trim($data['size'] ?? $data['field:size'] ?? '');
 
-        // Determine spec string
         $spec = ($loadIndex || $speedRating)
             ? trim($loadIndex . $speedRating)
             : trim($data['spec'] ?? $data['field:spec'] ?? '');
 
-        // Determine product type
-        $type = $this->detectType($rawName, $data['type'] ?? $data['field:type'] ?? '');
-
-        // Use brand from dedicated column or fall back to name-parsed brand
+        $type  = $this->detectType($rawName, $data['type'] ?? $data['field:type'] ?? '');
         $brand = $rawBrand !== '' ? $rawBrand : ($parsed['brand'] ?? '');
-
-        // Strip brand prefix from name to get clean product name
-        $name = $this->stripBrandFromName($rawName, $brand);
+        $name  = $this->stripBrandFromName($rawName, $brand);
 
         $isActive = ! in_array($rawVisible, ['false', '0', 'no', 'hidden', ''], true);
 
-        // Season fallback: if not parsed from name, check dedicated column
         if ($season === null) {
             $rawSeason = strtolower(trim($data['season'] ?? $data['field:season'] ?? ''));
             $season    = $this->mapSeasonValue($rawSeason);
         }
 
-        // Final fallback season
         $season ??= 'Summer';
 
         return [
@@ -188,10 +260,6 @@ class ImportWixProducts extends Command
         ];
     }
 
-    /**
-     * Parse tyre-specific data from a product name.
-     * Handles patterns like: "Brand 205/45R17 88Y Summer"
-     */
     private function parseTyreName(string $name): array
     {
         $result = [
@@ -204,9 +272,6 @@ class ImportWixProducts extends Command
             'season'       => null,
         ];
 
-        // Combined pattern handles Wix name format: "205/45R 17 88Y"
-        // Captures width, height, rim, load_index, speed_rating in one match.
-        // \s* allows for optional space between R and rim (e.g. "R 17" or "R17").
         if (preg_match('/(\d{3})\/(\d{2})R\s*(\d{2})\s+(\d{2,3})([A-Z]{1,2})\b/', $name, $m)) {
             $result['width']        = $m[1];
             $result['height']       = $m[2];
@@ -215,7 +280,6 @@ class ImportWixProducts extends Command
             $result['speed_rating'] = $m[5];
         }
 
-        // Season from name keywords
         $lower = strtolower($name);
         if (str_contains($lower, 'winter') || str_contains($lower, 'snow') || str_contains($lower, 'nordic')) {
             $result['season'] = 'Winter';
@@ -227,19 +291,15 @@ class ImportWixProducts extends Command
             $result['season'] = 'Summer';
         }
 
-        // Brand: first word before the tyre size (e.g. "Pirelli 205/45R 17 88Y" → "Pirelli")
         if ($result['width']) {
-            $beforeSize = trim(preg_replace('/\d{3}\/\d{2}R\s*\d{2}.*/i', '', $name));
-            $words      = explode(' ', $beforeSize);
+            $beforeSize      = trim(preg_replace('/\d{3}\/\d{2}R\s*\d{2}.*/i', '', $name));
+            $words           = explode(' ', $beforeSize);
             $result['brand'] = $words[0] ?? null;
         }
 
         return $result;
     }
 
-    /**
-     * Detect PCR vs TBR from name or an explicit type column.
-     */
     private function detectType(string $name, string $typeColumn): string
     {
         if ($typeColumn !== '') {
@@ -265,9 +325,6 @@ class ImportWixProducts extends Command
         return 'PCR';
     }
 
-    /**
-     * Remove the brand name prefix from the full product name.
-     */
     private function stripBrandFromName(string $name, string $brand): string
     {
         if ($brand === '') {
@@ -277,9 +334,6 @@ class ImportWixProducts extends Command
         return trim($cleaned !== '' ? $cleaned : $name);
     }
 
-    /**
-     * Map a raw season string from a dedicated column.
-     */
     private function mapSeasonValue(string $value): ?string
     {
         if (str_contains($value, 'winter') || str_contains($value, 'snow')) {
@@ -297,14 +351,10 @@ class ImportWixProducts extends Command
         return null;
     }
 
-    /**
-     * Upsert a batch of mapped rows. Returns [new_count, updated_count].
-     */
     private function flushBatch(array $batch): array
     {
         $skus = array_column($batch, 'sku');
 
-        // SKUs that already exist
         $existingSkus = Product::withTrashed()
             ->whereIn('sku', $skus)
             ->pluck('sku')
@@ -316,8 +366,8 @@ class ImportWixProducts extends Command
 
         Product::upsert(
             $batch,
-            ['sku'],           // unique key
-            [                  // columns to update on conflict
+            ['sku'],
+            [
                 'brand', 'name', 'size', 'spec', 'season', 'type',
                 'price', 'description', 'is_active',
                 'width', 'height', 'rim', 'load_index', 'speed_rating',
