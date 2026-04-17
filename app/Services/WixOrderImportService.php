@@ -22,9 +22,10 @@ class WixOrderImportService
 
     private const PAYMENT_MAP = [
         'paid'     => 'paid',
-        'pending'  => 'unpaid',
-        'unpaid'   => 'unpaid',
+        'pending'  => 'pending',
+        'unpaid'   => 'pending',
         'refunded' => 'refunded',
+        'failed'   => 'failed',
     ];
 
     /**
@@ -127,7 +128,7 @@ class WixOrderImportService
     {
         $rawStatus  = strtolower(trim($data['fulfillment status'] ?? ''));
         $rawPayment = strtolower(trim($data['payment status'] ?? ''));
-        $rawMethod  = trim($data['payment method'] ?? 'unknown');
+        $rawMethod  = trim($data['payment method'] ?? '') ?: null;
 
         $email = trim($data['contact email'] ?? $data['buyer email'] ?? $data['email'] ?? '');
         $name  = trim($data['billing name'] ?? $data['recipient name'] ?? $data['buyer name'] ?? '');
@@ -166,7 +167,7 @@ class WixOrderImportService
             'city'               => $city     ?: 'N/A',
             'postal_code'        => $postal   ?: 'N/A',
             'country'            => $country  ?: 'N/A',
-            'payment_method'     => $rawMethod ?: 'unknown',
+            'payment_method'     => $rawMethod,
             'subtotal'           => $subtotal,
             'delivery_cost'      => $deliveryCost,
             'total'              => $total,
