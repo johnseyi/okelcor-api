@@ -29,6 +29,7 @@ use App\Http\Controllers\Admin\AdminUserController;
 use App\Http\Controllers\Admin\AuthController;
 use App\Http\Controllers\Admin\MediaController;
 use App\Http\Controllers\Admin\ProductImportController;
+use App\Http\Controllers\Admin\SupplierController;
 use Illuminate\Support\Facades\Route;
 
 Route::prefix('v1')->group(function () {
@@ -222,6 +223,10 @@ Route::prefix('v1')->group(function () {
             // Newsletter subscribers
             Route::get('newsletter', [AdminNewsletterController::class, 'index']);
             Route::delete('newsletter/{email}', [AdminNewsletterController::class, 'destroy']);
+
+            // Supplier intelligence
+            Route::get('supplier/search', [SupplierController::class, 'search']);
+            Route::get('supplier/alibaba-link', [SupplierController::class, 'alibabaLink']);
         });
     });
 });

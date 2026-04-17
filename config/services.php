@@ -50,4 +50,10 @@ return [
         'api_key' => env('DHL_API_KEY'),
     ],
 
+    'ebay' => [
+        'client_id'     => env('EBAY_CLIENT_ID'),
+        'client_secret' => env('EBAY_CLIENT_SECRET'),
+        'environment'   => env('EBAY_ENVIRONMENT', 'sandbox'),
+    ],
+
 ];
