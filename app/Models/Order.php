@@ -28,6 +28,7 @@ class Order extends Model
         'vat_valid',
         'payment_session_id',
         'carrier',
+        'carrier_type',
         'tracking_number',
         'container_number',
         'tracking_status',

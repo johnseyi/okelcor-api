@@ -46,4 +46,8 @@ return [
         'key' => env('SHIPSGO_API_KEY'),
     ],
 
+    'dhl' => [
+        'api_key' => env('DHL_API_KEY'),
+    ],
+
 ];
