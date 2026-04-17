@@ -45,11 +45,15 @@ class WixOrderImportService
             throw new \RuntimeException("Cannot open file: {$filePath}");
         }
 
-        // Read and normalise headers
+        // Read and normalise headers — strip UTF-8 BOM if present (Wix exports include it)
         $rawHeaders = fgetcsv($handle);
         if ($rawHeaders === false) {
             fclose($handle);
             throw new \RuntimeException('CSV file is empty or unreadable.');
+        }
+
+        if (isset($rawHeaders[0])) {
+            $rawHeaders[0] = ltrim($rawHeaders[0], "\xEF\xBB\xBF");
         }
 
         $headers = array_map(fn ($h) => strtolower(trim($h)), $rawHeaders);
