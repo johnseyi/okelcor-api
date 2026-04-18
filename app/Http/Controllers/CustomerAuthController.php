@@ -25,7 +25,7 @@ class CustomerAuthController extends Controller
     public function register(Request $request): JsonResponse
     {
         $data = $request->validate([
-            'customer_type' => ['required', 'in:b2c,b2b'],
+            'customer_type' => 'required|in:b2c,b2b',
             'first_name'    => ['required', 'string', 'max:100'],
             'last_name'     => ['required', 'string', 'max:100'],
             'email'         => ['required', 'email', 'max:255', 'unique:customers,email'],
