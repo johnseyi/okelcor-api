@@ -4,20 +4,52 @@ Last updated: 2026-04-18
 ## Project
 Laravel 11 / PHP 8.3 REST API for Okelcor B2B tyre wholesale.
 - Local: `http://localhost:8000`
-- Production: `https://api.okelcor.de`
+- Production: `https://api.okelcor.de` (hosted on Hostinger at `takeovercreatives.com/public_html/okelcor-api`)
 - DB: `okelcor_cms` on MySQL 8 via Laragon (root, no password)
-- Auth: Laravel Sanctum token (Bearer) — admin routes only
+- Auth: Laravel Sanctum token (Bearer) — admin routes AND customer routes
 - All responses: `application/json` (ForceJsonResponse middleware)
 - GitHub: `https://github.com/johnseyi/okelcor-api.git` (branch: `main`)
 
 ---
 
-## Current Route Count: 95+
+## Hostinger Deploy Command (run after every git pull)
+```bash
+cd /home/u978121777/domains/takeovercreatives.com/public_html/okelcor-api
+git pull origin main
+/opt/alt/php83/usr/bin/php artisan migrate --force
+/opt/alt/php83/usr/bin/php artisan config:cache
+/opt/alt/php83/usr/bin/php artisan route:cache
+```
+
+---
+
+## Current Route Count: 115+
+
+### Customer Auth routes (public — no token)
+```
+POST   /api/v1/auth/register
+POST   /api/v1/auth/login
+POST   /api/v1/auth/forgot-password
+POST   /api/v1/auth/reset-password
+POST   /api/v1/auth/resend-verification
+GET    /api/v1/auth/verify-email/{id}/{hash}    ← signed URL, redirects to frontend
+```
+
+### Customer routes (auth.customer middleware — Bearer token)
+```
+POST   /api/v1/auth/logout
+GET    /api/v1/auth/me
+PUT    /api/v1/auth/profile
+PUT    /api/v1/auth/change-password
+
+GET    /api/v1/auth/addresses
+POST   /api/v1/auth/addresses
+PUT    /api/v1/auth/addresses/{id}
+DELETE /api/v1/auth/addresses/{id}
+```
 
 ### Public routes (no auth)
 ```
-GET    /api/v1/products
-GET    /api/v1/products/{id}
 GET    /api/v1/products/brands
 GET    /api/v1/products/specs
 GET    /api/v1/articles
@@ -29,7 +61,7 @@ GET    /api/v1/settings/public
 GET    /api/v1/settings
 GET    /api/v1/search
 POST   /api/v1/vat/validate
-POST   /api/v1/payments/create-session     ← was create-intent (now Adyen)
+POST   /api/v1/payments/create-session
 POST   /api/v1/payments/webhook            ← Adyen Standard Notification handler
 GET    /api/v1/tracking/{container}        ← auto-detects DHL vs sea freight
 GET    /api/v1/orders                      ← requires ?email=
@@ -40,6 +72,12 @@ POST   /api/v1/newsletter/subscribe
 GET    /api/v1/newsletter/confirm/{token}
 POST   /api/v1/quote-requests
 POST   /api/v1/admin/login
+```
+
+### Product catalogue — requires auth.customer
+```
+GET    /api/v1/products                    ← requires customer Bearer token
+GET    /api/v1/products/{id}               ← requires customer Bearer token
 ```
 
 ### Product filter query params (GET /api/v1/products)
@@ -215,6 +253,40 @@ NOT through the Vercel proxy.
 
 ## Schema — Full Table Reference
 
+### `customers`
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | bigint | PK |
+| `customer_type` | enum | `b2c`, `b2b` — default `b2c` |
+| `first_name` | varchar | |
+| `last_name` | varchar | |
+| `email` | varchar(255) | unique |
+| `password` | varchar | hashed, hidden from API |
+| `phone` | varchar(50) | nullable |
+| `country` | varchar(100) | nullable |
+| `company_name` | varchar(200) | nullable; required if b2b on register |
+| `vat_number` | varchar(20) | nullable |
+| `vat_verified` | tinyint | auto-set via VIES on register/profile update |
+| `industry` | varchar(100) | nullable |
+| `email_verified_at` | timestamp | nullable — must be set before login allowed |
+| `must_reset_password` | tinyint | default 0 — blocks login until reset |
+| `is_active` | tinyint | default 1 |
+| `imported_from_wix` | tinyint | default 0 |
+
+### `customer_addresses`
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | bigint | PK |
+| `customer_id` | bigint FK | cascade delete |
+| `full_name` | varchar | |
+| `address_line_1` | varchar | |
+| `address_line_2` | varchar | nullable |
+| `city` | varchar | |
+| `postcode` | varchar(20) | |
+| `country` | varchar | |
+| `phone` | varchar(50) | nullable |
+| `is_default` | tinyint | default 0 — only one default per customer |
+
 ### `products`
 | Column | Type | Notes |
 |--------|------|-------|
@@ -294,6 +366,39 @@ Locales ENUM: `en`, `de`, `fr`, `es`
 
 ## Features & Integrations
 
+### Customer Authentication (Laravel Sanctum)
+- **Separate from admin auth** — uses `auth.customer` middleware (`CustomerAuth.php`)
+- Token resolved via `PersonalAccessToken::findToken()` scoped to `Customer` model
+- Middleware alias: `auth.customer` registered in `bootstrap/app.php`
+
+**Register flow:**
+- Validates all fields; `company_name` required if `customer_type=b2b`
+- If `vat_number` provided → validated against VIES API, sets `vat_verified`
+- Sends verification email via `CustomerEmailVerification` mailable
+- Customer cannot log in until `email_verified_at` is set
+
+**Login flow:**
+- Checks `is_active`, `email_verified_at`, `must_reset_password` before issuing token
+- Returns `{ token, customer: { id, first_name, last_name, email, customer_type, company_name, vat_verified, country } }`
+
+**Email verification:**
+- Signed URL: `GET /api/v1/auth/verify-email/{id}/{hash}` (24hr expiry)
+- On success: redirects to `{FRONTEND_URL}/login?verified=true`
+- Route name: `verification.verify`
+
+**Password reset:**
+- Token stored in `password_reset_tokens` table (60 min expiry), hashed with `Hash::make`
+- Reset link: `{FRONTEND_URL}/reset-password?token={token}&email={email}`
+
+**Customer address management:**
+- All 4 CRUD endpoints under `/api/v1/auth/addresses`
+- Setting `is_default: true` on create/update automatically clears all other defaults
+- Address queries scoped to authenticated customer — no cross-customer access possible
+
+**Mailables:**
+- `CustomerEmailVerification` → view: `emails.customer-verify-email`
+- `CustomerPasswordReset` → view: `emails.customer-reset-password`
+
 ### Adyen Payment Gateway (replaced Stripe)
 - Package: `adyen/php-api-library` v29
 - Config: `config/services.php` → `adyen.api_key`, `adyen.merchant_account`, `adyen.environment`, `adyen.client_key`
@@ -338,16 +443,18 @@ Locales ENUM: `en`, `de`, `fr`, `es`
 ### Supplier Intelligence
 - `GET /api/v1/admin/supplier/search?q={query}&limit={1-50}` — proxies eBay DE Browse API
 - `GET /api/v1/admin/supplier/alibaba-link?q={query}` — returns Alibaba search URL (open in new tab)
-- `EbayService`: client credentials OAuth token cached for ~2 hrs, searches category `66471` (tyres) on `EBAY_DE` marketplace
-- Env vars: `EBAY_CLIENT_ID`, `EBAY_CLIENT_SECRET`, `EBAY_ENVIRONMENT` (sandbox/production)
-- Sandbox returns dummy data — switch to `EBAY_ENVIRONMENT=production` with live credentials for real results
+- `EbayService`: client credentials OAuth token cached for ~2 hrs
+- Query is auto-simplified before sending to eBay — extracts `BRAND SIZE` (e.g. `"YOKOHAMA 225/45R18"`) from full product name
+- No category filter applied — removed to avoid EBAY_DE category ID mismatch
+- Env vars: `EBAY_CLIENT_ID`, `EBAY_CLIENT_SECRET`, `EBAY_ENVIRONMENT=production`
+- eBay errors now throw (visible 502 with message) instead of silently returning empty
 
 ### VAT Validation (EU VIES REST)
 - No SOAP, no third-party package — direct HTTP via Laravel `Http` facade
 - Endpoint: `POST /api/v1/vat/validate` body: `{ "vat_number": "DE123456789" }`
 - Calls `https://ec.europa.eu/taxation_customs/vies/rest-api/ms/{CC}/vat/{number}`
 - Returns: `{ valid, name, address, country_code, vat_number, message }`
-- Also runs automatically on `POST /orders` and `POST /quote-requests` when `vat_number` is provided
+- Also runs automatically on `POST /orders`, `POST /quote-requests`, and customer register/profile update when `vat_number` is provided
 
 ### Multilingual Content
 - Locales: `en`, `de`, `fr`, `es`
@@ -451,29 +558,26 @@ Conversion: `url(Storage::url($relativePath))` in controller formatters.
 
 | Item | Notes |
 |------|-------|
-| eBay production credentials | Currently sandbox — set `EBAY_ENVIRONMENT=production` with live keys when ready |
+| eBay production credentials | Live keys set in Hostinger .env — `EBAY_ENVIRONMENT=production` |
 | Adyen webhook HMAC verification | Currently accepts all POST to /payments/webhook — add HMAC check in production |
 | `GET /admin/products?trashed=only` | Restore works but no dedicated trashed product list endpoint |
+| Admin customer management | No admin endpoints for listing/editing/deactivating customer accounts yet |
 
 ---
 
-## Hostinger Deployment Checklist
+## Environment
 
-After every `git push`, SSH into Hostinger and run:
-
-```bash
-cd ~/domains/takeovercreatives.com/public_html/okelcor-api
-git pull origin main
-composer install --no-dev --optimize-autoloader
-php artisan migrate --force
-php artisan config:clear
-php artisan cache:clear
-php artisan route:clear
+```
+PHP:     8.3.30
+Laravel: 13.2.0
+MySQL:   8.0
+DB:      okelcor_cms
+Host:    127.0.0.1:3306
+User:    root (no password, local) / Hostinger DB credentials (production)
+Web server: Apache
 ```
 
-**All migrations are up to date as of 2026-04-18.**
-
-**Required `.env` on Hostinger:**
+## Required `.env` on Hostinger
 ```env
 # Adyen (replaces Stripe)
 ADYEN_API_KEY=
@@ -493,22 +597,8 @@ DHL_API_KEY=
 # eBay supplier search
 EBAY_CLIENT_ID=
 EBAY_CLIENT_SECRET=
-EBAY_ENVIRONMENT=sandbox
+EBAY_ENVIRONMENT=production
 
-# Frontend URL (used in email tracking links)
+# Frontend URL (used in email links and redirects)
 FRONTEND_URL=https://okelcor.de
-```
-
----
-
-## Environment
-
-```
-PHP:     8.3.30
-Laravel: 13.2.0
-MySQL:   8.0
-DB:      okelcor_cms
-Host:    127.0.0.1:3306
-User:    root (no password, local) / Hostinger DB credentials (production)
-Web server: Apache
 ```
