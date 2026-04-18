@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\CustomerAuthController;
+use App\Http\Controllers\CustomerAddressController;
 use App\Http\Controllers\ArticleController;
 use App\Http\Controllers\ContainerTrackingController;
 use App\Http\Controllers\PaymentController;
@@ -54,6 +55,12 @@ Route::prefix('v1')->group(function () {
         Route::get('me', [CustomerAuthController::class, 'me']);
         Route::put('profile', [CustomerAuthController::class, 'updateProfile']);
         Route::put('change-password', [CustomerAuthController::class, 'changePassword']);
+
+        // Addresses
+        Route::get('addresses', [CustomerAddressController::class, 'index']);
+        Route::post('addresses', [CustomerAddressController::class, 'store']);
+        Route::put('addresses/{id}', [CustomerAddressController::class, 'update']);
+        Route::delete('addresses/{id}', [CustomerAddressController::class, 'destroy']);
     });
 
     // -------------------------------------------------------------------------
