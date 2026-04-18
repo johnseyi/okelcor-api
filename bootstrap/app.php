@@ -24,7 +24,8 @@ return Application::configure(basePath: dirname(__DIR__))
 
         // Role-based access control alias for admin routes
         $middleware->alias([
-            'admin.role' => \App\Http\Middleware\CheckAdminRole::class,
+            'admin.role'    => \App\Http\Middleware\CheckAdminRole::class,
+            'auth.customer' => \App\Http\Middleware\CustomerAuth::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {

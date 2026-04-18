@@ -1,0 +1,336 @@
+<?php
+
+namespace App\Http\Controllers;
+
+use App\Mail\CustomerEmailVerification;
+use App\Mail\CustomerPasswordReset;
+use App\Models\Customer;
+use App\Services\VatValidationService;
+use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\URL;
+use Illuminate\Support\Str;
+use Illuminate\Validation\Rules\Password;
+
+class CustomerAuthController extends Controller
+{
+    public function __construct(private VatValidationService $vatService) {}
+
+    // -------------------------------------------------------------------------
+    // POST /api/v1/auth/register
+    // -------------------------------------------------------------------------
+    public function register(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'customer_type' => ['required', 'in:b2c,b2b'],
+            'first_name'    => ['required', 'string', 'max:100'],
+            'last_name'     => ['required', 'string', 'max:100'],
+            'email'         => ['required', 'email', 'max:255', 'unique:customers,email'],
+            'password'      => ['required', 'confirmed', Password::min(8)],
+            'phone'         => ['nullable', 'string', 'max:50'],
+            'country'       => ['nullable', 'string', 'max:100'],
+            'company_name'  => [
+                $request->input('customer_type') === 'b2b' ? 'required' : 'nullable',
+                'string', 'max:200',
+            ],
+            'vat_number'    => ['nullable', 'string', 'max:20'],
+            'industry'      => ['nullable', 'string', 'max:100'],
+        ]);
+
+        $vatVerified = false;
+        if (! empty($data['vat_number'])) {
+            $result      = $this->vatService->validate($data['vat_number']);
+            $vatVerified = $result['valid'];
+        }
+
+        $customer = Customer::create([
+            ...$data,
+            'password'     => Hash::make($data['password']),
+            'vat_verified' => $vatVerified,
+        ]);
+
+        $this->sendVerificationEmail($customer);
+
+        return response()->json([
+            'message' => 'Please check your email to verify your account.',
+        ], 201);
+    }
+
+    // -------------------------------------------------------------------------
+    // POST /api/v1/auth/login
+    // -------------------------------------------------------------------------
+    public function login(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'email'    => ['required', 'email'],
+            'password' => ['required', 'string'],
+        ]);
+
+        $customer = Customer::where('email', $data['email'])->first();
+
+        if (! $customer || ! Hash::check($data['password'], $customer->password)) {
+            return response()->json(['message' => 'Invalid credentials.'], 401);
+        }
+
+        if (! $customer->is_active) {
+            return response()->json(['message' => 'Your account has been deactivated.'], 403);
+        }
+
+        if (! $customer->email_verified_at) {
+            return response()->json([
+                'message'        => 'Please verify your email first.',
+                'email_verified' => false,
+            ], 403);
+        }
+
+        if ($customer->must_reset_password) {
+            return response()->json([
+                'must_reset' => true,
+                'message'    => 'Please reset your password to continue.',
+            ], 403);
+        }
+
+        $token = $customer->createToken('customer-auth')->plainTextToken;
+
+        return response()->json([
+            'data' => [
+                'token'    => $token,
+                'customer' => $this->formatCustomer($customer),
+            ],
+            'message' => 'success',
+        ]);
+    }
+
+    // -------------------------------------------------------------------------
+    // POST /api/v1/auth/logout  (protected)
+    // -------------------------------------------------------------------------
+    public function logout(Request $request): JsonResponse
+    {
+        $request->user()->currentAccessToken()->delete();
+
+        return response()->json(['message' => 'Logged out successfully.']);
+    }
+
+    // -------------------------------------------------------------------------
+    // POST /api/v1/auth/resend-verification
+    // -------------------------------------------------------------------------
+    public function resendVerification(Request $request): JsonResponse
+    {
+        $request->validate(['email' => ['required', 'email']]);
+
+        $customer = Customer::where('email', $request->email)->first();
+
+        // Always return success to avoid email enumeration
+        if ($customer && ! $customer->email_verified_at) {
+            $this->sendVerificationEmail($customer);
+        }
+
+        return response()->json(['message' => 'If that account exists and is unverified, a verification email has been sent.']);
+    }
+
+    // -------------------------------------------------------------------------
+    // GET /api/v1/auth/verify-email/{id}/{hash}
+    // -------------------------------------------------------------------------
+    public function verifyEmail(Request $request, int $id, string $hash): \Illuminate\Http\RedirectResponse
+    {
+        $frontendUrl = rtrim(config('app.frontend_url', 'https://okelcor.de'), '/');
+
+        if (! $request->hasValidSignature()) {
+            return redirect($frontendUrl . '/login?verified=false&error=invalid_link');
+        }
+
+        $customer = Customer::find($id);
+
+        if (! $customer || ! hash_equals(sha1($customer->email), $hash)) {
+            return redirect($frontendUrl . '/login?verified=false&error=invalid_link');
+        }
+
+        if (! $customer->email_verified_at) {
+            $customer->update(['email_verified_at' => now()]);
+        }
+
+        return redirect($frontendUrl . '/login?verified=true');
+    }
+
+    // -------------------------------------------------------------------------
+    // POST /api/v1/auth/forgot-password
+    // -------------------------------------------------------------------------
+    public function forgotPassword(Request $request): JsonResponse
+    {
+        $request->validate(['email' => ['required', 'email']]);
+
+        $customer = Customer::where('email', $request->email)->first();
+
+        if ($customer) {
+            $token = Str::random(64);
+
+            DB::table('password_reset_tokens')->upsert(
+                [
+                    'email'      => $customer->email,
+                    'token'      => Hash::make($token),
+                    'created_at' => now(),
+                ],
+                ['email'],
+                ['token', 'created_at']
+            );
+
+            $frontendUrl = rtrim(config('app.frontend_url', 'https://okelcor.de'), '/');
+            $resetUrl    = $frontendUrl . '/reset-password?token=' . $token . '&email=' . urlencode($customer->email);
+
+            Mail::to($customer->email)->send(new CustomerPasswordReset($customer, $resetUrl));
+        }
+
+        return response()->json(['message' => 'If that email is registered, a password reset link has been sent.']);
+    }
+
+    // -------------------------------------------------------------------------
+    // POST /api/v1/auth/reset-password
+    // -------------------------------------------------------------------------
+    public function resetPassword(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'token'                 => ['required', 'string'],
+            'email'                 => ['required', 'email'],
+            'password'              => ['required', 'confirmed', Password::min(8)],
+        ]);
+
+        $record = DB::table('password_reset_tokens')
+            ->where('email', $data['email'])
+            ->first();
+
+        if (! $record) {
+            return response()->json(['message' => 'Invalid or expired reset token.'], 422);
+        }
+
+        // Check 60-minute expiry
+        if (now()->diffInMinutes($record->created_at) > 60) {
+            DB::table('password_reset_tokens')->where('email', $data['email'])->delete();
+            return response()->json(['message' => 'Reset token has expired. Please request a new one.'], 422);
+        }
+
+        if (! Hash::check($data['token'], $record->token)) {
+            return response()->json(['message' => 'Invalid or expired reset token.'], 422);
+        }
+
+        $customer = Customer::where('email', $data['email'])->first();
+
+        if (! $customer) {
+            return response()->json(['message' => 'Invalid or expired reset token.'], 422);
+        }
+
+        $customer->update([
+            'password'            => Hash::make($data['password']),
+            'must_reset_password' => false,
+        ]);
+
+        DB::table('password_reset_tokens')->where('email', $data['email'])->delete();
+
+        return response()->json(['message' => 'Password reset successfully. You can now log in.']);
+    }
+
+    // -------------------------------------------------------------------------
+    // GET /api/v1/auth/me  (protected)
+    // -------------------------------------------------------------------------
+    public function me(Request $request): JsonResponse
+    {
+        return response()->json([
+            'data'    => $this->formatCustomer($request->user()),
+            'message' => 'success',
+        ]);
+    }
+
+    // -------------------------------------------------------------------------
+    // PUT /api/v1/auth/profile  (protected)
+    // -------------------------------------------------------------------------
+    public function updateProfile(Request $request): JsonResponse
+    {
+        $customer = $request->user();
+
+        $data = $request->validate([
+            'first_name'   => ['sometimes', 'string', 'max:100'],
+            'last_name'    => ['sometimes', 'string', 'max:100'],
+            'phone'        => ['nullable', 'string', 'max:50'],
+            'country'      => ['nullable', 'string', 'max:100'],
+            'company_name' => ['nullable', 'string', 'max:200'],
+            'vat_number'   => ['nullable', 'string', 'max:20'],
+            'industry'     => ['nullable', 'string', 'max:100'],
+        ]);
+
+        // Re-validate VAT if number changed
+        if (array_key_exists('vat_number', $data) && $data['vat_number'] !== $customer->vat_number) {
+            if (! empty($data['vat_number'])) {
+                $result              = $this->vatService->validate($data['vat_number']);
+                $data['vat_verified'] = $result['valid'];
+            } else {
+                $data['vat_verified'] = false;
+            }
+        }
+
+        $customer->update($data);
+
+        return response()->json([
+            'data'    => $this->formatCustomer($customer->fresh()),
+            'message' => 'Profile updated successfully.',
+        ]);
+    }
+
+    // -------------------------------------------------------------------------
+    // PUT /api/v1/auth/change-password  (protected)
+    // -------------------------------------------------------------------------
+    public function changePassword(Request $request): JsonResponse
+    {
+        $customer = $request->user();
+
+        $request->validate([
+            'current_password' => ['required', 'string'],
+            'password'         => ['required', 'confirmed', Password::min(8)],
+        ]);
+
+        if (! Hash::check($request->current_password, $customer->password)) {
+            return response()->json([
+                'message' => 'The current password is incorrect.',
+                'errors'  => ['current_password' => ['The current password is incorrect.']],
+            ], 422);
+        }
+
+        $customer->update(['password' => Hash::make($request->password)]);
+
+        return response()->json(['message' => 'Password changed successfully.']);
+    }
+
+    // -------------------------------------------------------------------------
+    // Helpers
+    // -------------------------------------------------------------------------
+    private function sendVerificationEmail(Customer $customer): void
+    {
+        $url = URL::temporarySignedRoute(
+            'verification.verify',
+            now()->addHours(24),
+            ['id' => $customer->id, 'hash' => sha1($customer->email)]
+        );
+
+        Mail::to($customer->email)->send(new CustomerEmailVerification($customer, $url));
+    }
+
+    private function formatCustomer(Customer $c): array
+    {
+        return [
+            'id'            => $c->id,
+            'customer_type' => $c->customer_type,
+            'first_name'    => $c->first_name,
+            'last_name'     => $c->last_name,
+            'full_name'     => $c->full_name,
+            'email'         => $c->email,
+            'phone'         => $c->phone,
+            'country'       => $c->country,
+            'company_name'  => $c->company_name,
+            'vat_number'    => $c->vat_number,
+            'vat_verified'  => $c->vat_verified,
+            'industry'      => $c->industry,
+            'email_verified' => (bool) $c->email_verified_at,
+        ];
+    }
+}

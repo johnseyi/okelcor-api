@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\CustomerAuthController;
 use App\Http\Controllers\ArticleController;
 use App\Http\Controllers\ContainerTrackingController;
 use App\Http\Controllers\PaymentController;
@@ -35,14 +36,37 @@ use Illuminate\Support\Facades\Route;
 Route::prefix('v1')->group(function () {
 
     // -------------------------------------------------------------------------
+    // Customer auth — public (no token required)
+    // -------------------------------------------------------------------------
+    Route::prefix('auth')->group(function () {
+        Route::post('register', [CustomerAuthController::class, 'register']);
+        Route::post('login', [CustomerAuthController::class, 'login']);
+        Route::post('forgot-password', [CustomerAuthController::class, 'forgotPassword']);
+        Route::post('reset-password', [CustomerAuthController::class, 'resetPassword']);
+        Route::post('resend-verification', [CustomerAuthController::class, 'resendVerification']);
+        Route::get('verify-email/{id}/{hash}', [CustomerAuthController::class, 'verifyEmail'])
+            ->name('verification.verify');
+    });
+
+    // Customer auth — protected
+    Route::middleware('auth.customer')->prefix('auth')->group(function () {
+        Route::post('logout', [CustomerAuthController::class, 'logout']);
+        Route::get('me', [CustomerAuthController::class, 'me']);
+        Route::put('profile', [CustomerAuthController::class, 'updateProfile']);
+        Route::put('change-password', [CustomerAuthController::class, 'changePassword']);
+    });
+
+    // -------------------------------------------------------------------------
     // Public — no auth required
     // -------------------------------------------------------------------------
 
-    // Products
+    // Products — catalogue requires customer login; brands/specs remain public
     Route::get('products/brands', [ProductController::class, 'brands']);
     Route::get('products/specs', [ProductController::class, 'specs']);
-    Route::get('products', [ProductController::class, 'index']);
-    Route::get('products/{id}', [ProductController::class, 'show']);
+    Route::middleware('auth.customer')->group(function () {
+        Route::get('products', [ProductController::class, 'index']);
+        Route::get('products/{id}', [ProductController::class, 'show']);
+    });
 
     // Articles
     Route::get('articles', [ArticleController::class, 'index']);
