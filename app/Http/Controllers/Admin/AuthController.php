@@ -68,16 +68,10 @@ class AuthController extends Controller
 
         Log::info("Admin login: {$admin->email} from IP {$ip}");
 
-        $response = [
+        return response()->json(['data' => [
             'token' => $token,
-            'user'  => $this->formatUser($admin),
-        ];
-
-        if ($admin->must_change_password) {
-            $response['must_change_password'] = true;
-        }
-
-        return response()->json(['data' => $response]);
+            'user'  => $this->formatUser($admin->fresh()),
+        ]]);
     }
 
     public function logout(Request $request): JsonResponse
@@ -102,8 +96,20 @@ class AuthController extends Controller
             'display_name'        => $u->display_name,
             'email'               => $u->email,
             'role'                => $u->role,
+            'role_label'          => self::roleLabel($u->role),
             'last_login_at'       => $u->last_login_at?->toIso8601String(),
             'must_change_password' => (bool) $u->must_change_password,
         ];
+    }
+
+    public static function roleLabel(string $role): string
+    {
+        return match ($role) {
+            'super_admin'   => 'Super Admin',
+            'admin'         => 'Admin',
+            'editor'        => 'Editor',
+            'order_manager' => 'Order Manager',
+            default         => ucfirst($role),
+        };
     }
 }

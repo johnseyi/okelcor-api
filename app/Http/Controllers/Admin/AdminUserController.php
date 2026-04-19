@@ -69,7 +69,10 @@ class AdminUserController extends Controller
         // Revoke all other active sessions
         $user->tokens()->where('id', '!=', $request->user()->currentAccessToken()->id)->delete();
 
-        return response()->json(['message' => 'Password changed successfully.']);
+        return response()->json([
+            'data'    => $this->formatUser($user->fresh()),
+            'message' => 'Password changed successfully.',
+        ]);
     }
 
     // -------------------------------------------------------------------------
@@ -169,6 +172,7 @@ class AdminUserController extends Controller
             'display_name'        => $u->display_name,
             'email'               => $u->email,
             'role'                => $u->role,
+            'role_label'          => AuthController::roleLabel($u->role),
             'is_active'           => (bool) $u->is_active,
             'must_change_password' => (bool) $u->must_change_password,
             'last_login_at'       => $u->last_login_at?->toIso8601String(),
