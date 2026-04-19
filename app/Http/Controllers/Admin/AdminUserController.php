@@ -3,11 +3,14 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Mail\AdminWelcome;
 use App\Models\AdminUser;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\Rules\Password;
 
@@ -17,26 +20,21 @@ class AdminUserController extends Controller
     // Own profile — available to all authenticated admin roles
     // -------------------------------------------------------------------------
 
-    /**
-     * GET /admin/profile
-     * Returns the authenticated user's profile.
-     */
     public function profile(Request $request): JsonResponse
     {
         return response()->json(['data' => $this->formatUser($request->user())]);
     }
 
-    /**
-     * PUT /admin/profile
-     * Update own name and/or email.
-     */
     public function updateProfile(Request $request): JsonResponse
     {
         $user = $request->user();
 
         $validated = $request->validate([
-            'name'  => ['sometimes', 'string', 'max:200'],
-            'email' => ['sometimes', 'email', 'max:255', Rule::unique('admin_users', 'email')->ignore($user->id)],
+            'name'         => ['sometimes', 'string', 'max:200'],
+            'first_name'   => ['sometimes', 'string', 'max:100'],
+            'last_name'    => ['sometimes', 'string', 'max:100'],
+            'display_name' => ['sometimes', 'nullable', 'string', 'max:100'],
+            'email'        => ['sometimes', 'email', 'max:255', Rule::unique('admin_users', 'email')->ignore($user->id)],
         ]);
 
         $user->update($validated);
@@ -47,10 +45,6 @@ class AdminUserController extends Controller
         ]);
     }
 
-    /**
-     * PUT /admin/profile/password
-     * Change own password. Requires current password confirmation.
-     */
     public function changePassword(Request $request): JsonResponse
     {
         $request->validate([
@@ -67,9 +61,12 @@ class AdminUserController extends Controller
             ], 422);
         }
 
-        $user->update(['password' => $request->password]);
+        $user->update([
+            'password'            => $request->password,
+            'must_change_password' => false,
+        ]);
 
-        // Revoke all other tokens so any existing sessions must re-login
+        // Revoke all other active sessions
         $user->tokens()->where('id', '!=', $request->user()->currentAccessToken()->id)->delete();
 
         return response()->json(['message' => 'Password changed successfully.']);
@@ -79,10 +76,6 @@ class AdminUserController extends Controller
     // User management — super_admin only
     // -------------------------------------------------------------------------
 
-    /**
-     * GET /admin/users
-     * List all admin users.
-     */
     public function index(): JsonResponse
     {
         $users = AdminUser::orderBy('name')->get();
@@ -93,54 +86,54 @@ class AdminUserController extends Controller
         ]);
     }
 
-    /**
-     * POST /admin/users
-     * Create a new admin user.
-     */
     public function store(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'name'     => ['required', 'string', 'max:200'],
-            'email'    => ['required', 'email', 'max:255', 'unique:admin_users,email'],
-            'password' => ['required', 'confirmed', Password::min(8)->letters()->numbers()],
-            'role'     => ['required', Rule::in(['super_admin', 'admin', 'editor', 'order_manager'])],
+            'name'       => ['required', 'string', 'max:200'],
+            'first_name' => ['nullable', 'string', 'max:100'],
+            'last_name'  => ['nullable', 'string', 'max:100'],
+            'email'      => ['required', 'email', 'max:255', 'unique:admin_users,email'],
+            'role'       => ['required', Rule::in(['super_admin', 'admin', 'editor', 'order_manager'])],
         ]);
 
-        $user = AdminUser::create($validated);
+        $temporaryPassword = Str::password(16);
+
+        $user = AdminUser::create([
+            ...$validated,
+            'password'            => $temporaryPassword,
+            'must_change_password' => true,
+        ]);
+
+        Mail::to($user->email)->send(new AdminWelcome($user, $temporaryPassword));
 
         return response()->json([
             'data'    => $this->formatUser($user),
-            'message' => 'Admin user created.',
+            'message' => 'Admin user created. A welcome email with login instructions has been sent.',
         ], 201);
     }
 
-    /**
-     * GET /admin/users/{id}
-     * Get a single admin user.
-     */
     public function show(int $id): JsonResponse
     {
         return response()->json(['data' => $this->formatUser(AdminUser::findOrFail($id))]);
     }
 
-    /**
-     * PUT /admin/users/{id}
-     * Update a user's name, email, or role. Password reset also supported.
-     */
     public function update(Request $request, int $id): JsonResponse
     {
         $user = AdminUser::findOrFail($id);
 
         $validated = $request->validate([
-            'name'     => ['sometimes', 'string', 'max:200'],
-            'email'    => ['sometimes', 'email', 'max:255', Rule::unique('admin_users', 'email')->ignore($id)],
-            'role'     => ['sometimes', Rule::in(['super_admin', 'admin', 'editor', 'order_manager'])],
-            'password' => ['sometimes', 'confirmed', Password::min(8)->letters()->numbers()],
+            'name'         => ['sometimes', 'string', 'max:200'],
+            'first_name'   => ['sometimes', 'nullable', 'string', 'max:100'],
+            'last_name'    => ['sometimes', 'nullable', 'string', 'max:100'],
+            'display_name' => ['sometimes', 'nullable', 'string', 'max:100'],
+            'email'        => ['sometimes', 'email', 'max:255', Rule::unique('admin_users', 'email')->ignore($id)],
+            'role'         => ['sometimes', Rule::in(['super_admin', 'admin', 'editor', 'order_manager'])],
+            'password'     => ['sometimes', 'confirmed', Password::min(8)->letters()->numbers()],
+            'is_active'    => ['sometimes', 'boolean'],
         ]);
 
         $user->update($validated);
 
-        // If a super_admin resets someone's password, revoke that user's tokens
         if (isset($validated['password'])) {
             $user->tokens()->delete();
         }
@@ -151,10 +144,6 @@ class AdminUserController extends Controller
         ]);
     }
 
-    /**
-     * DELETE /admin/users/{id}
-     * Delete an admin user. Cannot delete yourself.
-     */
     public function destroy(Request $request, int $id): Response
     {
         if ($request->user()->id === $id) {
@@ -173,12 +162,17 @@ class AdminUserController extends Controller
     private function formatUser(AdminUser $u): array
     {
         return [
-            'id'            => $u->id,
-            'name'          => $u->name,
-            'email'         => $u->email,
-            'role'          => $u->role,
-            'last_login_at' => $u->last_login_at?->toIso8601String(),
-            'created_at'    => $u->created_at?->toIso8601String(),
+            'id'                  => $u->id,
+            'name'                => $u->name,
+            'first_name'          => $u->first_name,
+            'last_name'           => $u->last_name,
+            'display_name'        => $u->display_name,
+            'email'               => $u->email,
+            'role'                => $u->role,
+            'is_active'           => (bool) $u->is_active,
+            'must_change_password' => (bool) $u->must_change_password,
+            'last_login_at'       => $u->last_login_at?->toIso8601String(),
+            'created_at'          => $u->created_at?->toIso8601String(),
         ];
     }
 }

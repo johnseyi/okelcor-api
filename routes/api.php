@@ -158,6 +158,7 @@ Route::prefix('v1')->group(function () {
         Route::get('profile', [AdminUserController::class, 'profile']);
         Route::put('profile', [AdminUserController::class, 'updateProfile']);
         Route::put('profile/password', [AdminUserController::class, 'changePassword']);
+        Route::put('change-password', [AdminUserController::class, 'changePassword']);
 
         // User management — super_admin only
         Route::middleware('admin.role:super_admin')->group(function () {

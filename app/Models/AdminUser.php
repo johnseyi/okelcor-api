@@ -11,10 +11,16 @@ class AdminUser extends Authenticatable
 
     protected $fillable = [
         'name',
+        'first_name',
+        'last_name',
+        'display_name',
         'email',
         'password',
         'role',
         'last_login_at',
+        'last_login_ip',
+        'must_change_password',
+        'is_active',
     ];
 
     protected $hidden = [
@@ -22,8 +28,10 @@ class AdminUser extends Authenticatable
     ];
 
     protected $casts = [
-        'last_login_at' => 'datetime',
-        'password'      => 'hashed',
+        'last_login_at'       => 'datetime',
+        'password'            => 'hashed',
+        'must_change_password' => 'boolean',
+        'is_active'           => 'boolean',
     ];
 
     public function media()
