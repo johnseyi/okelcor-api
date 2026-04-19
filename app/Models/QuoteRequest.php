@@ -3,10 +3,12 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class QuoteRequest extends Model
 {
     protected $fillable = [
+        'customer_id',
         'ref_number',
         'full_name',
         'company_name',
@@ -32,4 +34,9 @@ class QuoteRequest extends Model
     protected $hidden = [
         'ip_address',
     ];
+
+    public function customer(): BelongsTo
+    {
+        return $this->belongsTo(Customer::class);
+    }
 }

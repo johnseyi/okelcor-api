@@ -51,4 +51,14 @@ class Customer extends Authenticatable
     {
         return $this->hasMany(CustomerAddress::class);
     }
+
+    public function quoteRequests(): HasMany
+    {
+        return $this->hasMany(QuoteRequest::class);
+    }
+
+    public function invoices(): HasMany
+    {
+        return $this->hasMany(Invoice::class);
+    }
 }

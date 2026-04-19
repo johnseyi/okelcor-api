@@ -302,6 +302,54 @@ class CustomerAuthController extends Controller
     }
 
     // -------------------------------------------------------------------------
+    // GET /api/v1/auth/quotes  (protected)
+    // -------------------------------------------------------------------------
+    public function quotes(Request $request): JsonResponse
+    {
+        $quotes = $request->user()
+            ->quoteRequests()
+            ->orderByDesc('created_at')
+            ->get()
+            ->map(fn ($q) => [
+                'id'             => $q->id,
+                'ref'            => $q->ref_number,
+                'created_at'     => $q->created_at->toIso8601String(),
+                'status'         => $this->mapQuoteStatus($q->status),
+                'product_details' => trim(implode(' — ', array_filter([
+                    $q->brand_preference,
+                    $q->tyre_size,
+                ]))),
+                'quantity'       => $q->quantity,
+                'notes'          => $q->notes,
+            ]);
+
+        return response()->json(['data' => $quotes]);
+    }
+
+    // -------------------------------------------------------------------------
+    // GET /api/v1/auth/invoices  (protected)
+    // -------------------------------------------------------------------------
+    public function invoices(Request $request): JsonResponse
+    {
+        $invoices = $request->user()
+            ->invoices()
+            ->orderByDesc('issued_at')
+            ->get()
+            ->map(fn ($inv) => [
+                'id'             => $inv->id,
+                'invoice_number' => $inv->invoice_number,
+                'issued_at'      => $inv->issued_at->toIso8601String(),
+                'due_at'         => $inv->due_at->toIso8601String(),
+                'amount'         => (float) $inv->amount,
+                'status'         => $inv->status,
+                'pdf_url'        => $inv->pdf_url,
+                'order_ref'      => $inv->order_ref,
+            ]);
+
+        return response()->json(['data' => $invoices]);
+    }
+
+    // -------------------------------------------------------------------------
     // Helpers
     // -------------------------------------------------------------------------
     private function sendVerificationEmail(Customer $customer): void
@@ -313,6 +361,17 @@ class CustomerAuthController extends Controller
         );
 
         Mail::to($customer->email)->send(new CustomerEmailVerification($customer, $url));
+    }
+
+    private function mapQuoteStatus(string $status): string
+    {
+        return match ($status) {
+            'new'       => 'pending',
+            'reviewing' => 'reviewed',
+            'quoted'    => 'approved',
+            'closed'    => 'rejected',
+            default     => $status,
+        };
     }
 
     private function formatCustomer(Customer $c): array

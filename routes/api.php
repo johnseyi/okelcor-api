@@ -56,6 +56,10 @@ Route::prefix('v1')->group(function () {
         Route::put('profile', [CustomerAuthController::class, 'updateProfile']);
         Route::put('change-password', [CustomerAuthController::class, 'changePassword']);
 
+        // Quotes & Invoices
+        Route::get('quotes', [CustomerAuthController::class, 'quotes']);
+        Route::get('invoices', [CustomerAuthController::class, 'invoices']);
+
         // Addresses
         Route::get('addresses', [CustomerAddressController::class, 'index']);
         Route::post('addresses', [CustomerAddressController::class, 'store']);
