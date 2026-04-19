@@ -30,7 +30,7 @@ class AdminWelcome extends Mailable
             with: [
                 'admin'             => $this->admin,
                 'temporaryPassword' => $this->temporaryPassword,
-                'loginUrl'          => 'https://okelcor.de/admin',
+                'loginUrl'          => rtrim(config('app.frontend_url', 'https://okelcor.de'), '/') . '/admin',
             ],
         );
     }
