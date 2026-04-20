@@ -28,13 +28,16 @@ class Product extends Model
         'speed_rating',
         'stock',
         'cost_price',
+        'ebay_listed',
+        'ebay_listing_id',
     ];
 
     protected $casts = [
-        'price'      => 'decimal:2',
-        'cost_price' => 'decimal:2',
-        'is_active'  => 'boolean',
-        'stock'      => 'integer',
+        'price'        => 'decimal:2',
+        'cost_price'   => 'decimal:2',
+        'is_active'    => 'boolean',
+        'stock'        => 'integer',
+        'ebay_listed'  => 'boolean',
     ];
 
     public function images()

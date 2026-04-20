@@ -33,6 +33,7 @@ use App\Http\Controllers\Admin\MediaController;
 use App\Http\Controllers\Admin\ProductImportController;
 use App\Http\Controllers\Admin\SupplierController;
 use App\Http\Controllers\Admin\CustomerImportController;
+use App\Http\Controllers\Admin\EbayListingController;
 use Illuminate\Support\Facades\Route;
 
 Route::prefix('v1')->group(function () {
@@ -276,6 +277,17 @@ Route::prefix('v1')->group(function () {
         // Customer CSV import — super_admin only
         Route::middleware('admin.role:super_admin')->group(function () {
             Route::post('customers/import', [CustomerImportController::class, 'import']);
+        });
+
+        // -----------------------------------------------------------------
+        // eBay listing sync — super_admin only
+        // -----------------------------------------------------------------
+        Route::middleware('admin.role:super_admin')->group(function () {
+            Route::get('ebay/auth-url', [EbayListingController::class, 'authUrl']);
+            Route::get('ebay/listings', [EbayListingController::class, 'listings']);
+            Route::post('ebay/sync-all', [EbayListingController::class, 'syncAll']);
+            Route::post('products/{id}/list-on-ebay', [EbayListingController::class, 'listProduct']);
+            Route::delete('products/{id}/ebay-listing', [EbayListingController::class, 'removeListing']);
         });
     });
 });

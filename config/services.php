@@ -56,4 +56,16 @@ return [
         'environment'   => env('EBAY_ENVIRONMENT', 'sandbox'),
     ],
 
+    'ebay_sell' => [
+        'client_id'             => env('EBAY_CLIENT_ID'),
+        'client_secret'         => env('EBAY_CLIENT_SECRET'),
+        'refresh_token'         => env('EBAY_REFRESH_TOKEN'),
+        'ru_name'               => env('EBAY_RU_NAME'),
+        'marketplace_id'        => env('EBAY_MARKETPLACE_ID', 'EBAY_DE'),
+        'category_id'           => env('EBAY_CATEGORY_ID', '11755'),
+        'fulfillment_policy_id' => env('EBAY_FULFILLMENT_POLICY_ID'),
+        'payment_policy_id'     => env('EBAY_PAYMENT_POLICY_ID'),
+        'return_policy_id'      => env('EBAY_RETURN_POLICY_ID'),
+    ],
+
 ];
