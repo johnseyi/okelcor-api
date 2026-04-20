@@ -339,7 +339,7 @@ class CustomerAuthController extends Controller
                 'id'             => $inv->id,
                 'invoice_number' => $inv->invoice_number,
                 'issued_at'      => $inv->issued_at->toIso8601String(),
-                'due_at'         => $inv->due_at->toIso8601String(),
+                'due_at'         => $inv->due_at?->toIso8601String(),
                 'amount'         => (float) $inv->amount,
                 'status'         => $inv->status,
                 'pdf_url'        => $inv->pdf_url,

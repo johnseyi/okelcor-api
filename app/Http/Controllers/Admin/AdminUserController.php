@@ -70,7 +70,7 @@ class AdminUserController extends Controller
         $user->tokens()->where('id', '!=', $request->user()->currentAccessToken()->id)->delete();
 
         return response()->json([
-            'data'    => $this->formatUser($user->fresh()),
+            'data'    => ['user' => $this->formatUser($user->fresh())],
             'message' => 'Password changed successfully.',
         ]);
     }
