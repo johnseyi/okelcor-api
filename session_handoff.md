@@ -1,5 +1,5 @@
 # Session Handoff — Okelcor API
-Last updated: 2026-04-18
+Last updated: 2026-04-20
 
 ## Project
 Laravel 11 / PHP 8.3 REST API for Okelcor B2B tyre wholesale.
@@ -23,7 +23,7 @@ git pull origin main
 
 ---
 
-## Current Route Count: 115+
+## Current Route Count: 120+
 
 ### Customer Auth routes (public — no token)
 ```
@@ -42,11 +42,52 @@ GET    /api/v1/auth/me
 PUT    /api/v1/auth/profile
 PUT    /api/v1/auth/change-password
 
+GET    /api/v1/auth/quotes       ← customer's own quote requests
+GET    /api/v1/auth/invoices     ← customer's own invoices
+
 GET    /api/v1/auth/addresses
 POST   /api/v1/auth/addresses
 PUT    /api/v1/auth/addresses/{id}
 DELETE /api/v1/auth/addresses/{id}
 ```
+
+#### GET /api/v1/auth/quotes — response shape
+```json
+{
+  "data": [
+    {
+      "id": 1,
+      "ref": "QT-2024-001",
+      "created_at": "2024-04-01T10:00:00+00:00",
+      "status": "pending",
+      "product_details": "Michelin — 205/55R16",
+      "quantity": "200",
+      "notes": "Urgent delivery needed"
+    }
+  ]
+}
+```
+Status mapping (internal → customer-facing):
+`new` → `pending` | `reviewing` → `reviewed` | `quoted` → `approved` | `closed` → `rejected`
+
+#### GET /api/v1/auth/invoices — response shape
+```json
+{
+  "data": [
+    {
+      "id": 1,
+      "invoice_number": "INV-2024-0042",
+      "issued_at": "2024-04-01T00:00:00+00:00",
+      "due_at": "2024-04-30T00:00:00+00:00",
+      "amount": 4850.00,
+      "status": "paid",
+      "pdf_url": "https://api.okelcor.de/storage/invoices/INV-2024-0042.pdf",
+      "order_ref": "OKL-AB123"
+    }
+  ]
+}
+```
+Status values: `paid` | `unpaid` | `overdue`
 
 ### Public routes (no auth)
 ```
@@ -101,13 +142,14 @@ All under `/api/v1/admin/` — require `Authorization: Bearer {token}`.
 Role hierarchy: `super_admin` > `admin` > `editor` | `order_manager`
 
 ```
-POST   /admin/logout
-GET    /admin/me
+POST   /admin/login                         ← public, issues token
 
-# Own profile — all roles
-GET    /admin/profile
-PUT    /admin/profile
-PUT    /admin/profile/password
+POST   /admin/logout                        ← all roles
+GET    /admin/me                            ← all roles
+GET    /admin/profile                       ← all roles
+PUT    /admin/profile                       ← all roles (first_name, last_name, display_name, name, email)
+PUT    /admin/profile/password              ← all roles (change password)
+PUT    /admin/change-password               ← all roles (alias for profile/password — same method)
 
 # User management — super_admin only
 GET    /admin/users
@@ -189,6 +231,53 @@ DELETE /admin/newsletter/{email}
 GET    /admin/supplier/search?q={query}&limit={1-50}
 GET    /admin/supplier/alibaba-link?q={query}
 ```
+
+#### Admin login response shape
+```json
+{
+  "data": {
+    "token": "...",
+    "user": {
+      "id": 1,
+      "name": "John Doe",
+      "first_name": "John",
+      "last_name": "Doe",
+      "display_name": "John",
+      "email": "john@okelcor.de",
+      "role": "super_admin",
+      "role_label": "Super Admin",
+      "last_login_at": "2026-04-20T10:00:00+00:00",
+      "must_change_password": false
+    }
+  }
+}
+```
+- `role` — raw DB string, always one of: `super_admin` | `admin` | `editor` | `order_manager`
+- `role_label` — human-readable: `Super Admin` | `Admin` | `Editor` | `Order Manager`
+- `must_change_password` — `true` on first login after account creation; cleared to `false` after `PUT /admin/change-password`
+- **Key name is `user`, NOT `admin`** — frontend must read `data.user.role`
+
+#### GET /admin/me and GET /admin/profile — same user shape as above, directly under `data`
+```json
+{ "data": { "id": 1, "role": "editor", "role_label": "Editor", ... } }
+```
+Frontend reads: `response.data.data.role` (axios) or `response.data.role` (fetch after `.json()`)
+
+#### PUT /admin/change-password — response includes updated user
+```json
+{
+  "data": { ...user object with must_change_password: false... },
+  "message": "Password changed successfully."
+}
+```
+Frontend must update its auth store from this response to clear the "change password" banner.
+
+#### POST /admin/users (super_admin only)
+- No password field in request — backend generates a 16-char secure temp password
+- Sets `must_change_password = true`
+- Sends `AdminWelcome` email to new user with temp password + login URL
+- Login URL comes from `FRONTEND_URL` env var — **currently set to `https://okelcor-website.vercel.app` on Hostinger; update to `https://okelcor.de` when domain goes live**
+- Plain text password is never stored or returned after the email is sent
 
 ---
 
@@ -287,6 +376,20 @@ NOT through the Vercel proxy.
 | `phone` | varchar(50) | nullable |
 | `is_default` | tinyint | default 0 — only one default per customer |
 
+### `invoices`
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | bigint | PK |
+| `customer_id` | bigint FK | cascade delete |
+| `invoice_number` | varchar(50) | unique |
+| `issued_at` | timestamp | |
+| `due_at` | timestamp | |
+| `amount` | decimal(10,2) | |
+| `status` | enum | `paid`, `unpaid`, `overdue` — default `unpaid` |
+| `pdf_url` | varchar(500) | nullable |
+| `order_ref` | varchar(30) | nullable |
+| `created_at` / `updated_at` | timestamp | |
+
 ### `products`
 | Column | Type | Notes |
 |--------|------|-------|
@@ -308,6 +411,26 @@ NOT through the Vercel proxy.
 | `cost_price` | decimal(10,2) | nullable |
 | `is_active` | tinyint | default 1 |
 | `sort_order` | int | default 0 |
+
+### `quote_requests`
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | bigint | PK |
+| `customer_id` | bigint FK | nullable, nullifies on customer delete — links to `customers` table |
+| `ref_number` | varchar(30) | unique |
+| `full_name` | varchar(200) | |
+| `company_name` | varchar(200) | nullable |
+| `email` | varchar(255) | indexed |
+| `phone` | varchar(50) | nullable |
+| `country` | varchar(100) | |
+| `tyre_category` | varchar(100) | |
+| `brand_preference` | varchar(200) | nullable |
+| `tyre_size` | varchar(100) | nullable |
+| `quantity` | varchar(100) | |
+| `notes` | text | |
+| `status` | enum | `new`, `reviewing`, `quoted`, `closed` — internal values |
+| `admin_notes` | text | nullable |
+| `ip_address` | varchar(45) | nullable, hidden from API |
 
 ### `orders`
 | Column | Type | Notes |
@@ -357,7 +480,19 @@ NOT through the Vercel proxy.
 ### `admin_users`
 | Column | Type | Notes |
 |--------|------|-------|
-| `role` | enum | `super_admin`, `admin`, `editor`, `order_manager` |
+| `id` | bigint | PK |
+| `name` | varchar(200) | full name (legacy field — kept for compatibility) |
+| `first_name` | varchar | nullable |
+| `last_name` | varchar | nullable |
+| `display_name` | varchar | nullable — shown in admin UI |
+| `email` | varchar(255) | unique |
+| `password` | varchar | hashed, hidden from API |
+| `role` | enum | `super_admin`, `admin`, `editor`, `order_manager` — default `editor` |
+| `last_login_at` | timestamp | nullable — updated on every successful login |
+| `last_login_ip` | varchar(45) | nullable — updated on every successful login |
+| `must_change_password` | tinyint | default 0 — set to 1 when super_admin creates account; cleared on first password change |
+| `is_active` | tinyint | default 1 — inactive accounts cannot log in |
+| `created_at` / `updated_at` | timestamp | |
 
 ### Translation tables (`article_translations`, `category_translations`, `hero_slide_translations`)
 Locales ENUM: `en`, `de`, `fr`, `es`
@@ -398,6 +533,34 @@ Locales ENUM: `en`, `de`, `fr`, `es`
 **Mailables:**
 - `CustomerEmailVerification` → view: `emails.customer-verify-email`
 - `CustomerPasswordReset` → view: `emails.customer-reset-password`
+
+### Admin Authentication (Laravel Sanctum)
+- Guard: `auth:sanctum` on all admin routes
+- Model: `AdminUser` (separate from customer `User` model)
+- Login: `POST /api/v1/admin/login` — public, no token required
+
+**Login security:**
+- Rate limited: 5 failed attempts per IP per minute via `RateLimiter` facade
+- Failed attempts logged to `laravel.log`: email + IP (password never logged)
+- Successful login logged: `Admin login: {email} from IP {ip}`
+- Checks `is_active` — inactive accounts get 403 before token is issued
+- Revokes all existing tokens before issuing new one
+
+**Account creation (super_admin only):**
+- No password field required — backend generates 16-char secure temp password via `Str::password(16)`
+- Sets `must_change_password = true` on new account
+- Sends `AdminWelcome` email with temp password and login URL
+- Login URL uses `FRONTEND_URL` env var (not hardcoded) — update env when domain changes
+- Plain text password is discarded after email is sent; never stored or returned
+
+**Password change:**
+- `PUT /admin/change-password` or `PUT /admin/profile/password` (same method, two paths)
+- Validates current password, sets new password, sets `must_change_password = false`
+- Revokes all other active sessions
+- Returns updated user object — frontend should update auth store from this response to clear any "change password" banner
+
+**Mailables:**
+- `AdminWelcome` → view: `emails.admin-welcome`
 
 ### Adyen Payment Gateway (replaced Stripe)
 - Package: `adyen/php-api-library` v29
@@ -463,14 +626,24 @@ Locales ENUM: `en`, `de`, `fr`, `es`
 - Hero slides + categories: locale-aware via `?locale=` param
 
 ### Role-Based Access Control
-Middleware: `admin.role:{roles}` (comma-separated).
+Middleware: `admin.role:{roles}` (comma-separated) — enforced at route level.
 
-| Role | Access |
-|------|--------|
-| `super_admin` | Everything including user management |
-| `admin` | Content + operations + import/export (no user management) |
-| `editor` | Content only (products, articles, categories, hero slides, brands, media, settings) |
-| `order_manager` | Operations only (orders, quote requests, contacts, newsletter, import/export, supplier search) |
+| Role | `role` string | `role_label` | Access |
+|------|--------------|-------------|--------|
+| Super Admin | `super_admin` | Super Admin | Everything including user management |
+| Admin | `admin` | Admin | Content + operations + import/export (no user management) |
+| Editor | `editor` | Editor | Content only (products, articles, categories, hero slides, brands, media, settings) |
+| Order Manager | `order_manager` | Order Manager | Operations only (orders, quote requests, contacts, newsletter, supplier search) |
+
+**Frontend nav filtering** — use `user.role` from auth store:
+```js
+const ROLE_ACCESS = {
+  super_admin:   ['dashboard','products','orders','quotes','articles','hero_slides','brands','categories','media','settings','users'],
+  admin:         ['dashboard','products','orders','quotes','articles','hero_slides','brands','categories','media','settings'],
+  editor:        ['dashboard','articles','hero_slides'],
+  order_manager: ['dashboard','orders','quotes'],
+}
+```
 
 ### Public Order API — fields returned
 `GET /api/v1/orders/{ref}` and `GET /api/v1/orders?email=` both return:
@@ -500,6 +673,7 @@ Allowed origins:
 - Validation error (422): `{ "message": "...", "errors": { "field": ["..."] } }`
 - Unauthenticated (401): `{ "message": "Unauthenticated." }`
 - Forbidden (403): `{ "message": "Forbidden. Insufficient role." }`
+- Rate limited (429): `{ "message": "Too many failed login attempts. Try again in N seconds." }`
 - Import success: `{ "data": { "imported": N, "updated": N, "skipped": N, "errors": [] }, "message": "..." }`
 
 ---
@@ -536,6 +710,7 @@ Conversion: `url(Storage::url($relativePath))` in controller formatters.
 
 | Limiter key | Limit | Applied to |
 |-------------|-------|-----------|
+| `admin-login:{ip}` | 5 failed attempts/min | `POST /admin/login` — via RateLimiter in controller |
 | `search` | 30/min | `GET /search` |
 | `vat` | 10/min | `POST /vat/validate` |
 | `payments` | 20/min | `POST /payments/create-session` |
@@ -562,6 +737,7 @@ Conversion: `url(Storage::url($relativePath))` in controller formatters.
 | Adyen webhook HMAC verification | Currently accepts all POST to /payments/webhook — add HMAC check in production |
 | `GET /admin/products?trashed=only` | Restore works but no dedicated trashed product list endpoint |
 | Admin customer management | No admin endpoints for listing/editing/deactivating customer accounts yet |
+| Invoice population | `invoices` table and API exist; no admin UI or import flow yet to create invoice records |
 
 ---
 
@@ -579,7 +755,7 @@ Web server: Apache
 
 ## Required `.env` on Hostinger
 ```env
-# Adyen (replaces Stripe)
+# Adyen
 ADYEN_API_KEY=
 ADYEN_MERCHANT_ACCOUNT=
 ADYEN_ENVIRONMENT=test
@@ -599,6 +775,8 @@ EBAY_CLIENT_ID=
 EBAY_CLIENT_SECRET=
 EBAY_ENVIRONMENT=production
 
-# Frontend URL (used in email links and redirects)
-FRONTEND_URL=https://okelcor.de
+# Frontend URL — used in ALL email links and redirects (verify email, password reset, admin welcome)
+# Currently: https://okelcor-website.vercel.app
+# Change to https://okelcor.de when domain goes live, then run: php artisan config:cache
+FRONTEND_URL=https://okelcor-website.vercel.app
 ```
