@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Http\Requests\StoreOrderRequest;
 use App\Mail\OrderConfirmation;
 use App\Mail\OrderReceived;
+use App\Models\Customer;
 use App\Models\Order;
 use App\Models\OrderItem;
 use App\Services\VatValidationService;
@@ -13,6 +14,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Str;
+use Laravel\Sanctum\PersonalAccessToken;
 
 class OrderController extends Controller
 {
@@ -95,7 +97,11 @@ class OrderController extends Controller
         $delivery  = $validated['delivery'];
         $items     = $validated['items'];
 
-        $vatNumber = $validated['vat_number'] ?? null;
+        // Strip VAT for individual (b2c) customers — they don't have a business VAT number
+        $customer  = $this->resolveCustomerFromToken($request);
+        $vatNumber = ($customer && $customer->customer_type === 'b2c')
+            ? null
+            : ($validated['vat_number'] ?? null);
         $vatValid  = null;
 
         if ($vatNumber) {
@@ -162,6 +168,21 @@ class OrderController extends Controller
                 'message' => 'Order received. Our team will contact you to arrange payment.',
             ],
         ], 201);
+    }
+
+    private function resolveCustomerFromToken(Request $request): ?Customer
+    {
+        $raw = $request->bearerToken();
+        if (! $raw) {
+            return null;
+        }
+
+        $token = PersonalAccessToken::findToken($raw);
+        if (! $token || $token->tokenable_type !== Customer::class) {
+            return null;
+        }
+
+        return $token->tokenable;
     }
 
     private function generateRef(): string

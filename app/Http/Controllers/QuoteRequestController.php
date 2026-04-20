@@ -3,11 +3,14 @@
 namespace App\Http\Controllers;
 
 use App\Http\Requests\StoreQuoteRequestRequest;
+use App\Models\Customer;
 use App\Models\QuoteRequest;
 use App\Services\VatValidationService;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
+use Laravel\Sanctum\PersonalAccessToken;
 
 class QuoteRequestController extends Controller
 {
@@ -18,7 +21,11 @@ class QuoteRequestController extends Controller
         $refNumber = $this->generateRef();
         $validated = $request->validated();
 
-        $vatNumber = $validated['vat_number'] ?? null;
+        // Strip VAT for individual (b2c) customers — they don't have a business VAT number
+        $customer  = $this->resolveCustomerFromToken($request);
+        $vatNumber = ($customer && $customer->customer_type === 'b2c')
+            ? null
+            : ($validated['vat_number'] ?? null);
         $vatValid  = null;
 
         if ($vatNumber) {
@@ -29,11 +36,12 @@ class QuoteRequestController extends Controller
         $quote = QuoteRequest::create(array_merge(
             $validated,
             [
-                'ref_number' => $refNumber,
-                'status'     => 'new',
-                'ip_address' => $request->ip(),
-                'vat_number' => $vatNumber,
-                'vat_valid'  => $vatValid,
+                'customer_id' => $customer?->id,
+                'ref_number'  => $refNumber,
+                'status'      => 'new',
+                'ip_address'  => $request->ip(),
+                'vat_number'  => $vatNumber,
+                'vat_valid'   => $vatValid,
             ]
         ));
 
@@ -46,6 +54,21 @@ class QuoteRequestController extends Controller
                 'message'    => 'Quote request received. Our team will respond within 1 business day.',
             ],
         ], 201);
+    }
+
+    private function resolveCustomerFromToken(Request $request): ?Customer
+    {
+        $raw = $request->bearerToken();
+        if (! $raw) {
+            return null;
+        }
+
+        $token = PersonalAccessToken::findToken($raw);
+        if (! $token || $token->tokenable_type !== Customer::class) {
+            return null;
+        }
+
+        return $token->tokenable;
     }
 
     private function generateRef(): string
