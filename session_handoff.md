@@ -151,7 +151,7 @@ PUT    /admin/profile                       ← all roles (first_name, last_name
 PUT    /admin/profile/password              ← all roles (change password)
 PUT    /admin/change-password               ← all roles (alias for profile/password — same method)
 
-# User management — super_admin only
+# User management — super_admin, admin
 GET    /admin/users
 POST   /admin/users
 GET    /admin/users/{id}
@@ -630,18 +630,18 @@ Middleware: `admin.role:{roles}` (comma-separated) — enforced at route level.
 
 | Role | `role` string | `role_label` | Access |
 |------|--------------|-------------|--------|
-| Super Admin | `super_admin` | Super Admin | Everything including user management |
-| Admin | `admin` | Admin | Content + operations + import/export (no user management) |
+| Super Admin | `super_admin` | Super Admin | Full access — everything |
+| Admin | `admin` | Admin | Full access — everything including user management |
 | Editor | `editor` | Editor | Content only (products, articles, categories, hero slides, brands, media, settings) |
 | Order Manager | `order_manager` | Order Manager | Operations only (orders, quote requests, contacts, newsletter, supplier search) |
 
 **Frontend nav filtering** — use `user.role` from auth store:
 ```js
 const ROLE_ACCESS = {
-  super_admin:   ['dashboard','products','orders','quotes','articles','hero_slides','brands','categories','media','settings','users'],
-  admin:         ['dashboard','products','orders','quotes','articles','hero_slides','brands','categories','media','settings'],
+  super_admin:   ['dashboard','products','orders','quotes','articles','hero_slides','brands','categories','media','settings','users','supplier'],
+  admin:         ['dashboard','products','orders','quotes','articles','hero_slides','brands','categories','media','settings','users','supplier'],
   editor:        ['dashboard','articles','hero_slides'],
-  order_manager: ['dashboard','orders','quotes'],
+  order_manager: ['dashboard','orders','quotes','supplier'],
 }
 ```
 

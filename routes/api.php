@@ -160,8 +160,8 @@ Route::prefix('v1')->group(function () {
         Route::put('profile/password', [AdminUserController::class, 'changePassword']);
         Route::put('change-password', [AdminUserController::class, 'changePassword']);
 
-        // User management — super_admin only
-        Route::middleware('admin.role:super_admin')->group(function () {
+        // User management — super_admin, admin
+        Route::middleware('admin.role:super_admin,admin')->group(function () {
             Route::get('users', [AdminUserController::class, 'index']);
             Route::post('users', [AdminUserController::class, 'store']);
             Route::get('users/{id}', [AdminUserController::class, 'show']);
