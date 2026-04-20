@@ -32,6 +32,7 @@ use App\Http\Controllers\Admin\AuthController;
 use App\Http\Controllers\Admin\MediaController;
 use App\Http\Controllers\Admin\ProductImportController;
 use App\Http\Controllers\Admin\SupplierController;
+use App\Http\Controllers\Admin\CustomerImportController;
 use Illuminate\Support\Facades\Route;
 
 Route::prefix('v1')->group(function () {
@@ -263,6 +264,18 @@ Route::prefix('v1')->group(function () {
             // Supplier intelligence
             Route::get('supplier/search', [SupplierController::class, 'search']);
             Route::get('supplier/alibaba-link', [SupplierController::class, 'alibabaLink']);
+        });
+
+        // -----------------------------------------------------------------
+        // Customer management — super_admin, admin
+        // -----------------------------------------------------------------
+        Route::middleware('admin.role:super_admin,admin')->group(function () {
+            Route::get('customers', [CustomerImportController::class, 'index']);
+        });
+
+        // Customer CSV import — super_admin only
+        Route::middleware('admin.role:super_admin')->group(function () {
+            Route::post('customers/import', [CustomerImportController::class, 'import']);
         });
     });
 });

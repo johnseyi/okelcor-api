@@ -726,6 +726,8 @@ Conversion: `url(Storage::url($relativePath))` in controller formatters.
 | `import:wix-products {file}` | Import products from Wix CSV + download images |
 | `import:product-images {file}` | Download missing images for already-imported products |
 | `import:wix-orders {file}` | Import orders from Wix CSV |
+| `import:wix-customers {file}` | Import customers from Wix contacts CSV |
+| `import:wix-customers {file} --no-email` | Import customers without sending welcome emails (dry-run safe) |
 
 ---
 
@@ -736,7 +738,7 @@ Conversion: `url(Storage::url($relativePath))` in controller formatters.
 | eBay production credentials | Live keys set in Hostinger .env — `EBAY_ENVIRONMENT=production` |
 | Adyen webhook HMAC verification | Currently accepts all POST to /payments/webhook — add HMAC check in production |
 | `GET /admin/products?trashed=only` | Restore works but no dedicated trashed product list endpoint |
-| Admin customer management | No admin endpoints for listing/editing/deactivating customer accounts yet |
+| Admin customer edit/deactivate | GET /admin/customers list exists; no PUT/DELETE per customer yet |
 | Invoice population | `invoices` table and API exist; no admin UI or import flow yet to create invoice records |
 
 ---
