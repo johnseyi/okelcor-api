@@ -27,6 +27,9 @@ class AdminProductController extends Controller
         if ($request->has('is_active')) {
             $query->where('is_active', (bool) $request->input('is_active'));
         }
+        if ($request->has('ebay_listed')) {
+            $query->where('ebay_listed', (bool) $request->input('ebay_listed'));
+        }
         if ($request->filled('search')) {
             $s = $request->search;
             $query->where(function ($q) use ($s) {
@@ -196,6 +199,7 @@ class AdminProductController extends Controller
                 'url' => url(Storage::url($img->path)),
             ])->values(),
             'is_active'     => (bool) $p->is_active,
+            'ebay_listed'   => (bool) $p->ebay_listed,
             'sort_order'    => $p->sort_order,
             'created_at'    => $p->created_at?->toIso8601String(),
         ];

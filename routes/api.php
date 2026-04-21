@@ -280,12 +280,16 @@ Route::prefix('v1')->group(function () {
         });
 
         // -----------------------------------------------------------------
-        // eBay listing sync — super_admin only
+        // eBay listing sync — super_admin, admin
         // -----------------------------------------------------------------
-        Route::middleware('admin.role:super_admin')->group(function () {
+        Route::middleware('admin.role:super_admin,admin')->group(function () {
             Route::get('ebay/auth-url', [EbayListingController::class, 'authUrl']);
             Route::get('ebay/listings', [EbayListingController::class, 'listings']);
             Route::post('ebay/sync-all', [EbayListingController::class, 'syncAll']);
+            // Canonical URLs (per frontend spec)
+            Route::post('products/{id}/ebay/list', [EbayListingController::class, 'listProduct']);
+            Route::delete('products/{id}/ebay/remove', [EbayListingController::class, 'removeListing']);
+            // Legacy aliases (keep for backward compat)
             Route::post('products/{id}/list-on-ebay', [EbayListingController::class, 'listProduct']);
             Route::delete('products/{id}/ebay-listing', [EbayListingController::class, 'removeListing']);
         });
