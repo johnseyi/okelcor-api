@@ -17,6 +17,8 @@ return [
         'https://okelcor-website.vercel.app',
         'https://okelcor.de',
         'https://www.okelcor.de',
+        'https://okelcor.com',
+        'https://www.okelcor.com',
     ],
 
     'allowed_origins_patterns' => [],
