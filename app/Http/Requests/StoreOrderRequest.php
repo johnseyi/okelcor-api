@@ -22,7 +22,7 @@ class StoreOrderRequest extends FormRequest
             'delivery.city'             => ['required', 'string', 'max:100'],
             'delivery.postal_code'      => ['required', 'string', 'max:20'],
             'delivery.country'          => ['required', 'string', 'max:100'],
-            'payment_method'            => ['required', 'string', 'max:50'],
+            'payment_method'            => ['required', 'string', 'in:creditcard,ideal,paypal,klarna,bancontact'],
             'items'                     => ['required', 'array', 'min:1'],
             'items.*.sku'               => ['required', 'string', 'max:50'],
             'items.*.brand'             => ['required', 'string', 'max:100'],
@@ -32,6 +32,11 @@ class StoreOrderRequest extends FormRequest
             'items.*.quantity'          => ['required', 'integer', 'min:1'],
             'items.*.product_id'        => ['nullable', 'integer'],
             'vat_number'                => ['nullable', 'string', 'min:4', 'max:20'],
+            'fet_addon'                 => ['nullable', 'array'],
+            'fet_addon.product_name'    => ['required_with:fet_addon', 'string', 'max:200'],
+            'fet_addon.sku'             => ['required_with:fet_addon', 'string', 'max:50'],
+            'fet_addon.unit_price'      => ['required_with:fet_addon', 'numeric', 'min:0'],
+            'fet_addon.quantity'        => ['required_with:fet_addon', 'integer', 'min:1'],
         ];
     }
 }

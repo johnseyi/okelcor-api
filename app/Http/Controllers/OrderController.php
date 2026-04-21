@@ -109,11 +109,15 @@ class OrderController extends Controller
             $vatValid  = $vatResult['valid'] ? 1 : 0;
         }
 
+        $fetAddon = $validated['fet_addon'] ?? null;
         $subtotal = collect($items)->sum(fn ($i) => $i['unit_price'] * $i['quantity']);
-        $total    = $subtotal; // delivery_cost = 0 until payment SDK is integrated
-        $ref      = $this->generateRef();
+        if ($fetAddon) {
+            $subtotal += $fetAddon['unit_price'] * $fetAddon['quantity'];
+        }
+        $total = $subtotal;
+        $ref   = $this->generateRef();
 
-        $order = DB::transaction(function () use ($delivery, $items, $subtotal, $total, $ref, $request, $vatNumber, $vatValid) {
+        $order = DB::transaction(function () use ($delivery, $items, $fetAddon, $subtotal, $total, $ref, $request, $vatNumber, $vatValid) {
             $order = Order::create([
                 'ref'            => $ref,
                 'customer_name'  => $delivery['name'],
@@ -149,6 +153,20 @@ class OrderController extends Controller
                 ]);
             }
 
+            if ($fetAddon) {
+                OrderItem::create([
+                    'order_id'   => $order->id,
+                    'product_id' => null,
+                    'sku'        => $fetAddon['sku'],
+                    'brand'      => '',
+                    'name'       => $fetAddon['product_name'],
+                    'size'       => '',
+                    'unit_price' => $fetAddon['unit_price'],
+                    'quantity'   => $fetAddon['quantity'],
+                    'line_total' => $fetAddon['unit_price'] * $fetAddon['quantity'],
+                ]);
+            }
+
             return $order;
         });
 
@@ -172,10 +190,15 @@ class OrderController extends Controller
 
     public function mollieWebhook(Request $request): JsonResponse
     {
+        $secret = config('services.mollie.webhook_secret');
+        if ($secret && $request->header('X-Webhook-Secret') !== $secret) {
+            return response()->json(['message' => 'Unauthorized.'], 401);
+        }
+
         $request->validate([
             'paymentId' => ['required', 'string'],
             'orderRef'  => ['required', 'string'],
-            'status'    => ['required', 'string'],
+            'status'    => ['required', 'string', 'in:paid,failed,expired,canceled,pending,open'],
         ]);
 
         $order = Order::where('ref', $request->orderRef)->first();
@@ -184,9 +207,13 @@ class OrderController extends Controller
             return response()->json(['message' => 'Order not found.'], 404);
         }
 
+        $updates = ['payment_status' => $request->status];
+
         if ($request->status === 'paid') {
-            $order->update(['payment_status' => 'paid']);
+            $updates['status'] = 'confirmed';
         }
+
+        $order->update($updates);
 
         return response()->json(['message' => 'Webhook received.']);
     }

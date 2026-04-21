@@ -56,6 +56,10 @@ return [
         'environment'   => env('EBAY_ENVIRONMENT', 'sandbox'),
     ],
 
+    'mollie' => [
+        'webhook_secret' => env('MOLLIE_WEBHOOK_SECRET'),
+    ],
+
     'ebay_sell' => [
         'client_id'             => env('EBAY_CLIENT_ID'),
         'client_secret'         => env('EBAY_CLIENT_SECRET'),
