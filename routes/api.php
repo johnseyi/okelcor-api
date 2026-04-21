@@ -120,6 +120,9 @@ Route::prefix('v1')->group(function () {
     Route::post('payments/webhook', [PaymentController::class, 'webhook'])
         ->withoutMiddleware([\App\Http\Middleware\ForceJsonResponse::class]);
 
+    // Mollie webhook — no auth, no rate limit
+    Route::post('orders/mollie-webhook', [OrderController::class, 'mollieWebhook']);
+
     // Public forms — rate limited: 10/hour
     Route::middleware('throttle:public-form')->group(function () {
         Route::post('contact', [ContactController::class, 'store']);

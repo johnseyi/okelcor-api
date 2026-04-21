@@ -170,6 +170,27 @@ class OrderController extends Controller
         ], 201);
     }
 
+    public function mollieWebhook(Request $request): JsonResponse
+    {
+        $request->validate([
+            'paymentId' => ['required', 'string'],
+            'orderRef'  => ['required', 'string'],
+            'status'    => ['required', 'string'],
+        ]);
+
+        $order = Order::where('ref', $request->orderRef)->first();
+
+        if (! $order) {
+            return response()->json(['message' => 'Order not found.'], 404);
+        }
+
+        if ($request->status === 'paid') {
+            $order->update(['payment_status' => 'paid']);
+        }
+
+        return response()->json(['message' => 'Webhook received.']);
+    }
+
     private function resolveCustomerFromToken(Request $request): ?Customer
     {
         $raw = $request->bearerToken();
