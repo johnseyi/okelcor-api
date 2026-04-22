@@ -35,6 +35,10 @@ class ProductController extends Controller
 
         $query = Product::with('images')->where('is_active', true);
 
+        if ($request->has('in_stock')) {
+            $query->where('in_stock', (bool) $request->input('in_stock'));
+        }
+
         if ($request->filled('type')) {
             $query->where('type', $request->type);
         }
@@ -180,6 +184,7 @@ class ProductController extends Controller
             'primary_image' => $p->primary_image ? url('storage/' . $p->primary_image) : null,
             'images'        => $p->images->map(fn ($img) => url('storage/' . $img->path))->values(),
             'is_active'     => (bool) $p->is_active,
+            'in_stock'      => (bool) $p->in_stock,
         ];
     }
 }

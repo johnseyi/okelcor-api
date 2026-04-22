@@ -30,6 +30,7 @@ class Product extends Model
         'cost_price',
         'ebay_listed',
         'ebay_listing_id',
+        'in_stock',
     ];
 
     protected $casts = [
@@ -38,6 +39,7 @@ class Product extends Model
         'is_active'    => 'boolean',
         'stock'        => 'integer',
         'ebay_listed'  => 'boolean',
+        'in_stock'     => 'boolean',
     ];
 
     public function images()

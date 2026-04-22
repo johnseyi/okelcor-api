@@ -28,6 +28,7 @@ class UpdateProductRequest extends FormRequest
             'description' => ['sometimes', 'string'],
             'primary_image' => ['nullable', 'file', 'mimes:jpeg,png,jpg,gif,webp,svg', 'max:5120'],
             'is_active'     => ['nullable', 'boolean'],
+            'in_stock'      => ['nullable', 'boolean'],
             'sort_order'    => ['nullable', 'integer'],
         ];
     }

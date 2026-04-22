@@ -186,6 +186,7 @@ Route::prefix('v1')->group(function () {
         Route::middleware('admin.role:super_admin,admin,editor')->group(function () {
 
             // Products
+            Route::post('products/bulk-stock', [AdminProductController::class, 'bulkStock']);
             Route::post('products/{id}/restore', [AdminProductController::class, 'restore']);
             Route::get('products', [AdminProductController::class, 'index']);
             Route::post('products', [AdminProductController::class, 'store']);

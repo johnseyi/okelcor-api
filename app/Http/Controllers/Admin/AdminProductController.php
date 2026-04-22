@@ -30,6 +30,9 @@ class AdminProductController extends Controller
         if ($request->has('ebay_listed')) {
             $query->where('ebay_listed', (bool) $request->input('ebay_listed'));
         }
+        if ($request->has('in_stock')) {
+            $query->where('in_stock', (bool) $request->input('in_stock'));
+        }
         if ($request->filled('search')) {
             $s = $request->search;
             $query->where(function ($q) use ($s) {
@@ -51,6 +54,30 @@ class AdminProductController extends Controller
                 'last_page'    => $paginated->lastPage(),
             ],
             'message' => 'success',
+        ]);
+    }
+
+    public function bulkStock(Request $request): JsonResponse
+    {
+        $request->validate([
+            'in_stock' => ['required', 'boolean'],
+            'all'      => ['required', 'boolean'],
+            'ids'      => ['nullable', 'array'],
+            'ids.*'    => ['integer'],
+        ]);
+
+        $query = Product::query();
+
+        if (! $request->boolean('all')) {
+            $request->validate(['ids' => ['required', 'array', 'min:1']]);
+            $query->whereIn('id', $request->ids);
+        }
+
+        $affected = $query->update(['in_stock' => $request->boolean('in_stock')]);
+
+        return response()->json([
+            'message'  => 'Updated successfully.',
+            'affected' => $affected,
         ]);
     }
 
@@ -199,6 +226,7 @@ class AdminProductController extends Controller
                 'url' => url(Storage::url($img->path)),
             ])->values(),
             'is_active'     => (bool) $p->is_active,
+            'in_stock'      => (bool) $p->in_stock,
             'ebay_listed'   => (bool) $p->ebay_listed,
             'sort_order'    => $p->sort_order,
             'created_at'    => $p->created_at?->toIso8601String(),
