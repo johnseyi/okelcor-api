@@ -132,6 +132,7 @@ class AdminOrderController extends Controller
             'customer_email' => $o->customer_email,
             'total'          => (float) $o->total,
             'status'         => $o->status,
+            'payment_status' => $o->payment_status,
             'payment_method' => $o->payment_method,
             'created_at'     => $o->created_at?->toIso8601String(),
         ];

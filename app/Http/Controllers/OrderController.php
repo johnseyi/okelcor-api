@@ -3,7 +3,6 @@
 namespace App\Http\Controllers;
 
 use App\Http\Requests\StoreOrderRequest;
-use App\Mail\OrderConfirmation;
 use App\Mail\OrderReceived;
 use App\Models\Customer;
 use App\Models\Order;
@@ -172,8 +171,6 @@ class OrderController extends Controller
 
         $order->load('items');
 
-        Mail::to($order->customer_email)->send(new OrderConfirmation($order));
-
         $adminEmail = env('ORDER_EMAIL');
         if ($adminEmail) {
             Mail::to($adminEmail)->send(new OrderReceived($order));
@@ -207,13 +204,16 @@ class OrderController extends Controller
             return response()->json(['message' => 'Order not found.'], 404);
         }
 
-        $updates = ['payment_status' => $request->status];
+        $statusMap = [
+            'paid'     => ['payment_status' => 'paid',     'status' => 'processing'],
+            'failed'   => ['payment_status' => 'failed',   'status' => 'cancelled'],
+            'expired'  => ['payment_status' => 'expired',  'status' => 'cancelled'],
+            'canceled' => ['payment_status' => 'canceled', 'status' => 'cancelled'],
+            'pending'  => ['payment_status' => 'pending'],
+            'open'     => ['payment_status' => 'open'],
+        ];
 
-        if ($request->status === 'paid') {
-            $updates['status'] = 'confirmed';
-        }
-
-        $order->update($updates);
+        $order->update($statusMap[$request->status] ?? ['payment_status' => $request->status]);
 
         return response()->json(['message' => 'Webhook received.']);
     }
