@@ -17,7 +17,8 @@ class ProductController extends Controller
             || $request->filled('season')
             || $request->filled('size')
             || $request->filled('price_min')
-            || $request->filled('price_max');
+            || $request->filled('price_max')
+            || $request->has('in_stock');
 
         if (! $hasFilter) {
             return response()->json([
