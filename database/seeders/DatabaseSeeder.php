@@ -26,6 +26,9 @@ class DatabaseSeeder extends Seeder
 
             // Locale patches — safe to re-run (updateOrCreate throughout)
             SpanishTranslationSeeder::class,
+
+            // FET engine compatibility (truncate + re-seed — safe to re-run)
+            FetEngineSeeder::class,
         ]);
     }
 }

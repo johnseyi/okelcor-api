@@ -34,6 +34,8 @@ use App\Http\Controllers\Admin\ProductImportController;
 use App\Http\Controllers\Admin\SupplierController;
 use App\Http\Controllers\Admin\CustomerImportController;
 use App\Http\Controllers\Admin\EbayListingController;
+use App\Http\Controllers\FetEngineController;
+use App\Http\Controllers\Admin\AdminFetEngineController;
 use Illuminate\Support\Facades\Route;
 
 Route::prefix('v1')->group(function () {
@@ -93,6 +95,9 @@ Route::prefix('v1')->group(function () {
 
     // Brands
     Route::get('brands', [BrandController::class, 'index']);
+
+    // FET engine compatibility
+    Route::get('fet/engines', [FetEngineController::class, 'index']);
 
     // Site settings (public read-only)
     Route::get('settings/public', [SettingController::class, 'public']);
@@ -181,6 +186,9 @@ Route::prefix('v1')->group(function () {
         Route::middleware('admin.role:super_admin,admin')->group(function () {
             Route::post('products/import', [ProductImportController::class, 'import']);
             Route::get('products/export', [ProductImportController::class, 'export']);
+
+            // FET engine bulk import
+            Route::post('fet/engines/import', [AdminFetEngineController::class, 'import']);
         });
 
         Route::middleware('admin.role:super_admin,admin,editor')->group(function () {
@@ -233,6 +241,12 @@ Route::prefix('v1')->group(function () {
             // Site settings
             Route::get('settings', [AdminSettingController::class, 'index']);
             Route::put('settings', [AdminSettingController::class, 'update']);
+
+            // FET engine compatibility
+            Route::get('fet/engines', [AdminFetEngineController::class, 'index']);
+            Route::post('fet/engines', [AdminFetEngineController::class, 'store']);
+            Route::put('fet/engines/{id}', [AdminFetEngineController::class, 'update']);
+            Route::delete('fet/engines/{id}', [AdminFetEngineController::class, 'destroy']);
         });
 
         // -----------------------------------------------------------------
