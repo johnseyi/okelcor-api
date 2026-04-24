@@ -35,7 +35,9 @@ use App\Http\Controllers\Admin\SupplierController;
 use App\Http\Controllers\Admin\CustomerImportController;
 use App\Http\Controllers\Admin\EbayListingController;
 use App\Http\Controllers\FetEngineController;
+use App\Http\Controllers\PromotionController;
 use App\Http\Controllers\Admin\AdminFetEngineController;
+use App\Http\Controllers\Admin\AdminPromotionController;
 use Illuminate\Support\Facades\Route;
 
 Route::prefix('v1')->group(function () {
@@ -98,6 +100,9 @@ Route::prefix('v1')->group(function () {
 
     // FET engine compatibility
     Route::get('fet/engines', [FetEngineController::class, 'index']);
+
+    // Active promotion (shop banner)
+    Route::get('promotions/active', [PromotionController::class, 'active']);
 
     // Site settings (public read-only)
     Route::get('settings/public', [SettingController::class, 'public']);
@@ -247,6 +252,14 @@ Route::prefix('v1')->group(function () {
             Route::post('fet/engines', [AdminFetEngineController::class, 'store']);
             Route::put('fet/engines/{id}', [AdminFetEngineController::class, 'update']);
             Route::delete('fet/engines/{id}', [AdminFetEngineController::class, 'destroy']);
+
+            // Promotions
+            Route::get('promotions', [AdminPromotionController::class, 'index']);
+            Route::post('promotions', [AdminPromotionController::class, 'store']);
+            Route::put('promotions/{id}', [AdminPromotionController::class, 'update']);
+            Route::patch('promotions/{id}/toggle', [AdminPromotionController::class, 'toggle']);
+            Route::delete('promotions/{id}', [AdminPromotionController::class, 'destroy']);
+            Route::post('promotions/{id}/media', [AdminPromotionController::class, 'uploadMedia']);
         });
 
         // -----------------------------------------------------------------
