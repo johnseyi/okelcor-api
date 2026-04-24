@@ -78,12 +78,16 @@ class ImportWixProducts extends Command
         while (($row = fgetcsv($handle)) !== false) {
             $bar->advance();
 
-            if (count($row) !== count($headers)) {
+            // Safely map row to headers — tolerates rows with extra or missing
+            // columns (e.g. unquoted commas in product names from proxy CSV re-serialisation)
+            if (count($row) === 0) {
                 $skipped++;
                 continue;
             }
-
-            $data = array_combine($headers, $row);
+            $data = [];
+            foreach ($headers as $i => $h) {
+                $data[$h] = $row[$i] ?? '';
+            }
 
             $sku         = trim($data['sku'] ?? $data['field:sku'] ?? '');
             $rawImageUrl = trim($data['productimageurl'] ?? '');
@@ -232,7 +236,8 @@ class ImportWixProducts extends Command
         $rawBrand   = trim($data['brand'] ?? $data['field:brand'] ?? '');
         $rawPrice   = $this->parseDecimal($data['price'] ?? $data['field:price'] ?? '0');
         $rawDesc    = trim($data['description'] ?? $data['product description'] ?? '');
-        $rawVisible = strtolower(trim($data['visible'] ?? $data['published'] ?? 'true'));
+        // Support both original 'visible' and proxy-renamed 'is_active'; also handles '1'/'0' from proxy
+        $rawVisible = strtolower(trim($data['visible'] ?? $data['is_active'] ?? $data['published'] ?? 'true'));
         $rawStock   = $this->parseInt($data['inventory'] ?? $data['field:stock'] ?? $data['stock'] ?? null);
         $rawCost    = $this->parseDecimal($data['cost'] ?? $data['cost price'] ?? $data['field:cost'] ?? null);
 
