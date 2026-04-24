@@ -40,6 +40,14 @@ class ProductController extends Controller
             $query->where('in_stock', (bool) $request->input('in_stock'));
         }
 
+        if ($request->filled('customer_type')) {
+            match ($request->customer_type) {
+                'b2b'   => $query->whereNotNull('price_b2b'),
+                'b2c'   => $query->whereNotNull('price_b2c'),
+                default => null,
+            };
+        }
+
         if ($request->filled('type')) {
             $query->where('type', $request->type);
         }
@@ -153,7 +161,7 @@ class ProductController extends Controller
             ->where('is_active', true)
             ->inRandomOrder()
             ->limit(4)
-            ->get(['id', 'brand', 'name', 'size', 'price', 'primary_image']);
+            ->get(['id', 'brand', 'name', 'size', 'price', 'price_b2b', 'price_b2c', 'primary_image']);
 
         $data = $this->formatProduct($product);
         $data['related'] = $related->map(fn ($r) => [
@@ -161,7 +169,9 @@ class ProductController extends Controller
             'brand'         => $r->brand,
             'name'          => $r->name,
             'size'          => $r->size,
-            'price'         => $r->price,
+            'price'         => (float) $r->price,
+            'price_b2b'     => $r->price_b2b !== null ? (float) $r->price_b2b : null,
+            'price_b2c'     => $r->price_b2c !== null ? (float) $r->price_b2c : null,
             'primary_image' => $r->primary_image ? url('storage/' . $r->primary_image) : null,
         ]);
 
@@ -181,6 +191,8 @@ class ProductController extends Controller
             'season'        => $p->season,
             'type'          => $p->type,
             'price'         => (float) $p->price,
+            'price_b2b'     => $p->price_b2b !== null ? (float) $p->price_b2b : null,
+            'price_b2c'     => $p->price_b2c !== null ? (float) $p->price_b2c : null,
             'description'   => $p->description,
             'primary_image' => $p->primary_image ? url('storage/' . $p->primary_image) : null,
             'images'        => $p->images->map(fn ($img) => url('storage/' . $img->path))->values(),
