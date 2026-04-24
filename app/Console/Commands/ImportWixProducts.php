@@ -14,7 +14,7 @@ class ImportWixProducts extends Command
 {
     protected $signature = 'import:wix-products
                             {file : Path to the CSV file}
-                            {--tier= : Price tier to write: b2b or b2c. Omit for single-file import.}';
+                            {--segment= : Price segment to write: b2b or b2c. Omit for single-file import.}';
 
     protected $description = 'Import tyre products from a CSV export';
 
@@ -26,10 +26,10 @@ class ImportWixProducts extends Command
         ini_set('memory_limit', '512M');
 
         $filePath = $this->argument('file');
-        $tier     = $this->option('tier'); // 'b2b', 'b2c', or null
+        $segment  = $this->option('segment'); // 'b2b', 'b2c', or null
 
-        if ($tier !== null && ! in_array($tier, ['b2b', 'b2c'], true)) {
-            $this->error("Invalid --tier value '{$tier}'. Must be 'b2b' or 'b2c'.");
+        if ($segment !== null && ! in_array($segment, ['b2b', 'b2c'], true)) {
+            $this->error("Invalid --segment value '{$segment}'. Must be 'b2b' or 'b2c'.");
             return self::FAILURE;
         }
 
@@ -49,8 +49,8 @@ class ImportWixProducts extends Command
         $headers       = array_map(fn ($h) => strtolower(trim($h)), $rawHeaders);
 
         $this->info("CSV columns detected: " . implode(', ', $headers));
-        if ($tier) {
-            $this->info("Tier mode: {$tier} — price column will be written to price_{$tier} only.");
+        if ($segment) {
+            $this->info("Segment mode: {$segment} — price column will be written to price_{$segment} only.");
         }
 
         $totalRows = 0;
@@ -99,18 +99,18 @@ class ImportWixProducts extends Command
                 continue;
             }
 
-            // Assign price to the correct tier field
-            if ($tier === 'b2b') {
+            // Assign price to the correct segment field
+            if ($segment === 'b2b') {
                 $mapped['price_b2b'] = $mapped['price'];
                 $mapped['price_b2c'] = null;
-            } elseif ($tier === 'b2c') {
+            } elseif ($segment === 'b2c') {
                 $mapped['price_b2c'] = $mapped['price'];
                 $mapped['price_b2b'] = null;
             }
 
             if (isset($rowsBySku[$sku])) {
-                if ($tier === null) {
-                    // No-tier mode: within-file duplicate SKUs treated as B2B/B2C pair
+                if ($segment === null) {
+                    // No-segment mode: within-file duplicate SKUs treated as B2B/B2C pair
                     $existingPrice = (float) $rowsBySku[$sku]['price'];
                     $newPrice      = (float) $mapped['price'];
 
@@ -118,7 +118,7 @@ class ImportWixProducts extends Command
                     $rowsBySku[$sku]['price_b2b'] = min($existingPrice, $newPrice);
                     $rowsBySku[$sku]['price']     = max($existingPrice, $newPrice);
                 } else {
-                    // Tier mode: files should have unique SKUs — last row wins
+                    // Segment mode: files should have unique SKUs — last row wins
                     $rowsBySku[$sku] = $mapped;
                 }
             } else {
@@ -138,7 +138,7 @@ class ImportWixProducts extends Command
         $chunks     = array_chunk(array_values($rowsBySku), $batchSize);
 
         foreach ($chunks as $chunk) {
-            [$imp, $upd] = $this->flushBatch($chunk, $tier);
+            [$imp, $upd] = $this->flushBatch($chunk, $segment);
             $imported   += $imp;
             $updated    += $upd;
             $imageCount += $this->downloadImagesForBatch($chunk, $imageMap);
@@ -384,7 +384,7 @@ class ImportWixProducts extends Command
         return null;
     }
 
-    private function flushBatch(array $batch, ?string $tier = null): array
+    private function flushBatch(array $batch, ?string $segment = null): array
     {
         $skus = array_column($batch, 'sku');
 
@@ -397,7 +397,7 @@ class ImportWixProducts extends Command
         $newCount     = count(array_filter($batch, fn ($r) => ! isset($existingSkus[$r['sku']])));
         $updatedCount = count($batch) - $newCount;
 
-        // Base columns updated on every import regardless of tier
+        // Base columns updated on every import regardless of segment
         $updateCols = [
             'brand', 'name', 'size', 'spec', 'season', 'type',
             'price', 'description', 'is_active',
@@ -405,10 +405,10 @@ class ImportWixProducts extends Command
             'stock', 'cost_price', 'updated_at',
         ];
 
-        // Only write the relevant price tier column — never overwrite the other
-        if ($tier === 'b2b') {
+        // Only write the relevant price segment column — never overwrite the other
+        if ($segment === 'b2b') {
             $updateCols[] = 'price_b2b';
-        } elseif ($tier === 'b2c') {
+        } elseif ($segment === 'b2c') {
             $updateCols[] = 'price_b2c';
         } else {
             $updateCols[] = 'price_b2b';

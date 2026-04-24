@@ -14,9 +14,9 @@ class ProductImportController extends Controller
     /**
      * POST /api/v1/admin/products/import
      *
-     * Accepts a CSV file and an optional tier (b2b|b2c).
-     * When tier is supplied, the price column is written to price_b2b or price_b2c only —
-     * the other price tier on existing records is never overwritten.
+     * Accepts a CSV file and an optional segment (b2b|b2c).
+     * When segment is supplied, the price column is written to price_b2b or price_b2c only —
+     * the other price field on existing records is never overwritten.
      */
     public function import(Request $request): JsonResponse
     {
@@ -25,16 +25,16 @@ class ProductImportController extends Controller
 
         $request->validate([
             'file' => ['required', 'file', 'extensions:csv', 'max:51200'],
-            'tier' => ['nullable', 'string', 'in:b2b,b2c'],
+            'segment' => ['nullable', 'string', 'in:b2b,b2c'],
         ]);
 
         try {
             $fullPath = $request->file('file')->getRealPath();
-            $tier     = $request->input('tier');
+            $segment  = $request->input('segment');
 
             $args = ['file' => $fullPath];
-            if ($tier) {
-                $args['--tier'] = $tier;
+            if ($segment) {
+                $args['--segment'] = $segment;
             }
 
             $exitCode = Artisan::call('import:wix-products', $args);
