@@ -14,42 +14,48 @@ class ProductImportController extends Controller
     /**
      * POST /api/v1/admin/products/import
      *
-     * Accepts a CSV file upload and runs the Wix import logic.
+     * Accepts a CSV file and an optional tier (b2b|b2c).
+     * When tier is supplied, the price column is written to price_b2b or price_b2c only —
+     * the other price tier on existing records is never overwritten.
      */
     public function import(Request $request): JsonResponse
     {
-        // Allow up to 5 minutes and 256 MB for large CSV imports on shared hosting
         set_time_limit(300);
-        ini_set('memory_limit', '256M');
+        ini_set('memory_limit', '512M');
 
         $request->validate([
-            // mimes checks detected MIME type — CSVs commonly arrive as text/plain,
-            // application/vnd.ms-excel, or application/octet-stream depending on OS/browser.
-            // extensions:csv checks only the file extension, which is reliable enough here.
-            'file' => ['required', 'file', 'extensions:csv', 'max:51200'], // 50 MB max
+            'file' => ['required', 'file', 'extensions:csv', 'max:51200'],
+            'tier' => ['nullable', 'string', 'in:b2b,b2c'],
         ]);
 
         try {
-            // Use PHP's temp file path directly — it is already on disk and valid
-            // for the full lifetime of this request. Avoids any storage permission
-            // issues that can occur when copying to storage/app on shared hosts.
             $fullPath = $request->file('file')->getRealPath();
+            $tier     = $request->input('tier');
 
-            $exitCode = Artisan::call('import:wix-products', ['file' => $fullPath]);
+            $args = ['file' => $fullPath];
+            if ($tier) {
+                $args['--tier'] = $tier;
+            }
+
+            $exitCode = Artisan::call('import:wix-products', $args);
             $output   = Artisan::output();
 
             if ($exitCode !== 0) {
                 return response()->json([
-                    'data'    => null,
+                    'data' => [
+                        'imported' => 0,
+                        'updated'  => 0,
+                        'skipped'  => 0,
+                        'errors'   => [['row' => null, 'message' => trim($output)]],
+                    ],
                     'message' => 'Import failed.',
-                    'error'   => trim($output),
                 ], 422);
             }
 
             $counts = $this->parseOutputCounts($output);
 
             return response()->json([
-                'data'    => [
+                'data' => [
                     'imported' => $counts['imported'],
                     'updated'  => $counts['updated'],
                     'skipped'  => $counts['skipped'],
@@ -59,9 +65,13 @@ class ProductImportController extends Controller
             ]);
         } catch (\Throwable $e) {
             return response()->json([
-                'data'    => null,
+                'data' => [
+                    'imported' => 0,
+                    'updated'  => 0,
+                    'skipped'  => 0,
+                    'errors'   => [['row' => null, 'message' => $e->getMessage()]],
+                ],
                 'message' => 'Import failed.',
-                'error'   => $e->getMessage(),
             ], 422);
         }
     }
@@ -69,16 +79,25 @@ class ProductImportController extends Controller
     /**
      * GET /api/v1/admin/products/export
      *
-     * Streams all products as a CSV download in Wix-compatible format.
+     * Streams all products (or a segment) as a CSV download.
+     * ?segment=b2b → products with price_b2b set, price column = price_b2b
+     * ?segment=b2c → products with price_b2c set, price column = price_b2c
+     * No segment    → full catalogue, price column = base price
      */
     public function export(Request $request): StreamedResponse
     {
-        $filename = 'okelcor_products_' . now()->format('Y-m-d_His') . '.csv';
+        $segment  = $request->input('segment'); // 'b2b', 'b2c', or null
+        $datePart = now()->format('Y-m-d_His');
 
-        return response()->streamDownload(function () {
+        $filename = match ($segment) {
+            'b2b'   => "products-b2b-{$datePart}.csv",
+            'b2c'   => "products-b2c-{$datePart}.csv",
+            default => "products-{$datePart}.csv",
+        };
+
+        return response()->streamDownload(function () use ($segment) {
             $handle = fopen('php://output', 'w');
 
-            // CSV header — Wix-compatible column names
             fputcsv($handle, [
                 'sku',
                 'name',
@@ -100,32 +119,44 @@ class ProductImportController extends Controller
                 'created_at',
             ]);
 
-            Product::withoutTrashed()
-                ->orderBy('id')
-                ->chunk(500, function ($products) use ($handle) {
-                    foreach ($products as $p) {
-                        fputcsv($handle, [
-                            $p->sku,
-                            $p->brand ? "{$p->brand} {$p->name}" : $p->name,
-                            $p->brand,
-                            $p->price,
-                            $p->description,
-                            $p->is_active ? 'true' : 'false',
-                            $p->season,
-                            $p->type,
-                            $p->size,
-                            $p->spec,
-                            $p->width,
-                            $p->height,
-                            $p->rim,
-                            $p->load_index,
-                            $p->speed_rating,
-                            $p->stock,
-                            $p->cost_price,
-                            $p->created_at?->toIso8601String(),
-                        ]);
-                    }
-                });
+            $query = Product::withoutTrashed()->orderBy('id');
+
+            if ($segment === 'b2b') {
+                $query->whereNotNull('price_b2b');
+            } elseif ($segment === 'b2c') {
+                $query->whereNotNull('price_b2c');
+            }
+
+            $query->chunk(500, function ($products) use ($handle, $segment) {
+                foreach ($products as $p) {
+                    $price = match ($segment) {
+                        'b2b'   => $p->price_b2b,
+                        'b2c'   => $p->price_b2c,
+                        default => $p->price,
+                    };
+
+                    fputcsv($handle, [
+                        $p->sku,
+                        $p->brand ? "{$p->brand} {$p->name}" : $p->name,
+                        $p->brand,
+                        $price,
+                        $p->description,
+                        $p->is_active ? 'True' : 'False',
+                        $p->season,
+                        $p->type,
+                        $p->size,
+                        $p->spec,
+                        $p->width,
+                        $p->height,
+                        $p->rim,
+                        $p->load_index,
+                        $p->speed_rating,
+                        $p->stock,
+                        $p->cost_price,
+                        $p->created_at?->toIso8601String(),
+                    ]);
+                }
+            });
 
             fclose($handle);
         }, $filename, [
@@ -134,13 +165,12 @@ class ProductImportController extends Controller
     }
 
     /**
-     * Extract imported/updated/skipped counts from artisan command output.
+     * Extract imported/updated/skipped counts from artisan command output table.
      */
     private function parseOutputCounts(string $output): array
     {
         $counts = ['imported' => 0, 'updated' => 0, 'skipped' => 0];
 
-        // The table output from the command looks like: | 150 | 30 | 2 |
         if (preg_match('/\|\s*(\d+)\s*\|\s*(\d+)\s*\|\s*(\d+)\s*\|/', $output, $m)) {
             $counts['imported'] = (int) $m[1];
             $counts['updated']  = (int) $m[2];

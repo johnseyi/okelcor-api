@@ -12,9 +12,11 @@ use Illuminate\Support\Str;
 
 class ImportWixProducts extends Command
 {
-    protected $signature = 'import:wix-products {file : Path to the Wix CSV export file}';
+    protected $signature = 'import:wix-products
+                            {file : Path to the CSV file}
+                            {--tier= : Price tier to write: b2b or b2c. Omit for single-file import.}';
 
-    protected $description = 'Import tyre products from a Wix CSV export';
+    protected $description = 'Import tyre products from a CSV export';
 
     private const TBR_KEYWORDS = ['truck', 'bus', 'tbr', 'heavy', 'commercial', 'lt ', ' lt', 'cargo'];
 
@@ -24,6 +26,12 @@ class ImportWixProducts extends Command
         ini_set('memory_limit', '512M');
 
         $filePath = $this->argument('file');
+        $tier     = $this->option('tier'); // 'b2b', 'b2c', or null
+
+        if ($tier !== null && ! in_array($tier, ['b2b', 'b2c'], true)) {
+            $this->error("Invalid --tier value '{$tier}'. Must be 'b2b' or 'b2c'.");
+            return self::FAILURE;
+        }
 
         if (! file_exists($filePath)) {
             $this->error("File not found: {$filePath}");
@@ -41,6 +49,9 @@ class ImportWixProducts extends Command
         $headers       = array_map(fn ($h) => strtolower(trim($h)), $rawHeaders);
 
         $this->info("CSV columns detected: " . implode(', ', $headers));
+        if ($tier) {
+            $this->info("Tier mode: {$tier} — price column will be written to price_{$tier} only.");
+        }
 
         $totalRows = 0;
         while (fgetcsv($handle) !== false) {
@@ -63,7 +74,7 @@ class ImportWixProducts extends Command
         $rowsBySku = []; // SKU => merged product row
         $imageMap  = []; // SKU => semicolon-separated image filename string
 
-        // Phase 1 — read all rows, merging duplicate SKUs into B2B/B2C price tiers
+        // Phase 1 — read all rows into a SKU-keyed map
         while (($row = fgetcsv($handle)) !== false) {
             $bar->advance();
 
@@ -77,7 +88,6 @@ class ImportWixProducts extends Command
             $sku         = trim($data['sku'] ?? $data['field:sku'] ?? '');
             $rawImageUrl = trim($data['productimageurl'] ?? '');
 
-            // Record first image URL encountered per SKU
             if ($sku !== '' && $rawImageUrl !== '' && ! isset($imageMap[$sku])) {
                 $imageMap[$sku] = $rawImageUrl;
             }
@@ -89,14 +99,28 @@ class ImportWixProducts extends Command
                 continue;
             }
 
-            if (isset($rowsBySku[$sku])) {
-                // Duplicate SKU — treat as B2B/B2C price pair
-                $existingPrice = (float) $rowsBySku[$sku]['price'];
-                $newPrice      = (float) $mapped['price'];
+            // Assign price to the correct tier field
+            if ($tier === 'b2b') {
+                $mapped['price_b2b'] = $mapped['price'];
+                $mapped['price_b2c'] = null;
+            } elseif ($tier === 'b2c') {
+                $mapped['price_b2c'] = $mapped['price'];
+                $mapped['price_b2b'] = null;
+            }
 
-                $rowsBySku[$sku]['price_b2c'] = max($existingPrice, $newPrice);
-                $rowsBySku[$sku]['price_b2b'] = min($existingPrice, $newPrice);
-                $rowsBySku[$sku]['price']     = max($existingPrice, $newPrice);
+            if (isset($rowsBySku[$sku])) {
+                if ($tier === null) {
+                    // No-tier mode: within-file duplicate SKUs treated as B2B/B2C pair
+                    $existingPrice = (float) $rowsBySku[$sku]['price'];
+                    $newPrice      = (float) $mapped['price'];
+
+                    $rowsBySku[$sku]['price_b2c'] = max($existingPrice, $newPrice);
+                    $rowsBySku[$sku]['price_b2b'] = min($existingPrice, $newPrice);
+                    $rowsBySku[$sku]['price']     = max($existingPrice, $newPrice);
+                } else {
+                    // Tier mode: files should have unique SKUs — last row wins
+                    $rowsBySku[$sku] = $mapped;
+                }
             } else {
                 $rowsBySku[$sku] = $mapped;
             }
@@ -107,14 +131,14 @@ class ImportWixProducts extends Command
         $this->newLine(2);
 
         // Phase 2 — batch upsert and image downloads
-        $imported    = 0;
-        $updated     = 0;
-        $imageCount  = 0;
-        $batchSize   = 200;
-        $chunks      = array_chunk(array_values($rowsBySku), $batchSize);
+        $imported   = 0;
+        $updated    = 0;
+        $imageCount = 0;
+        $batchSize  = 200;
+        $chunks     = array_chunk(array_values($rowsBySku), $batchSize);
 
         foreach ($chunks as $chunk) {
-            [$imp, $upd] = $this->flushBatch($chunk);
+            [$imp, $upd] = $this->flushBatch($chunk, $tier);
             $imported   += $imp;
             $updated    += $upd;
             $imageCount += $this->downloadImagesForBatch($chunk, $imageMap);
@@ -133,7 +157,6 @@ class ImportWixProducts extends Command
     {
         $skus = array_column($batch, 'sku');
 
-        // Only target products that don't already have a primary image
         $products = Product::whereIn('sku', $skus)
             ->whereNull('primary_image')
             ->get()
@@ -164,7 +187,6 @@ class ImportWixProducts extends Command
                 Log::info("import:wix-products downloaded images for {$count} products");
             }
 
-            // Second image → ProductImage gallery record
             if (isset($filenames[1])) {
                 $secondPath = $this->downloadWixImage($filenames[1]);
                 if ($secondPath) {
@@ -214,7 +236,7 @@ class ImportWixProducts extends Command
         $rawStock   = $this->parseInt($data['inventory'] ?? $data['field:stock'] ?? $data['stock'] ?? null);
         $rawCost    = $this->parseDecimal($data['cost'] ?? $data['cost price'] ?? $data['field:cost'] ?? null);
 
-        $parsed      = $this->parseTyreName($rawName);
+        $parsed = $this->parseTyreName($rawName);
 
         // Prefer regex-extracted values; fall back to dedicated CSV columns
         $width       = $parsed['width']        ?? $this->parseFloatToString($data['width'] ?? null);
@@ -362,7 +384,7 @@ class ImportWixProducts extends Command
         return null;
     }
 
-    private function flushBatch(array $batch): array
+    private function flushBatch(array $batch, ?string $tier = null): array
     {
         $skus = array_column($batch, 'sku');
 
@@ -375,16 +397,25 @@ class ImportWixProducts extends Command
         $newCount     = count(array_filter($batch, fn ($r) => ! isset($existingSkus[$r['sku']])));
         $updatedCount = count($batch) - $newCount;
 
-        Product::upsert(
-            $batch,
-            ['sku'],
-            [
-                'brand', 'name', 'size', 'spec', 'season', 'type',
-                'price', 'price_b2b', 'price_b2c', 'description', 'is_active',
-                'width', 'height', 'rim', 'load_index', 'speed_rating',
-                'stock', 'cost_price', 'updated_at',
-            ]
-        );
+        // Base columns updated on every import regardless of tier
+        $updateCols = [
+            'brand', 'name', 'size', 'spec', 'season', 'type',
+            'price', 'description', 'is_active',
+            'width', 'height', 'rim', 'load_index', 'speed_rating',
+            'stock', 'cost_price', 'updated_at',
+        ];
+
+        // Only write the relevant price tier column — never overwrite the other
+        if ($tier === 'b2b') {
+            $updateCols[] = 'price_b2b';
+        } elseif ($tier === 'b2c') {
+            $updateCols[] = 'price_b2c';
+        } else {
+            $updateCols[] = 'price_b2b';
+            $updateCols[] = 'price_b2c';
+        }
+
+        Product::upsert($batch, ['sku'], $updateCols);
 
         return [$newCount, $updatedCount];
     }
