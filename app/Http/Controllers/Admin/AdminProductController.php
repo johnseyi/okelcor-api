@@ -33,6 +33,13 @@ class AdminProductController extends Controller
         if ($request->has('in_stock')) {
             $query->where('in_stock', (bool) $request->input('in_stock'));
         }
+        if ($request->filled('customer_type')) {
+            match ($request->customer_type) {
+                'b2b'   => $query->whereNotNull('price_b2b'),
+                'b2c'   => $query->whereNotNull('price_b2c'),
+                default => null,
+            };
+        }
         if ($request->filled('search')) {
             $s = $request->search;
             $query->where(function ($q) use ($s) {
@@ -219,6 +226,8 @@ class AdminProductController extends Controller
             'season'        => $p->season,
             'type'          => $p->type,
             'price'         => (float) $p->price,
+            'price_b2b'     => $p->price_b2b !== null ? (float) $p->price_b2b : null,
+            'price_b2c'     => $p->price_b2c !== null ? (float) $p->price_b2c : null,
             'description'   => $p->description,
             'primary_image' => $p->primary_image ? url(Storage::url($p->primary_image)) : null,
             'images'        => $p->images->map(fn ($img) => [

@@ -25,6 +25,8 @@ class UpdateProductRequest extends FormRequest
             'season'      => ['sometimes', Rule::in(['Summer', 'Winter', 'All Season', 'All-Terrain'])],
             'type'        => ['sometimes', Rule::in(['PCR', 'TBR', 'Used', 'OTR'])],
             'price'       => ['sometimes', 'numeric', 'min:0'],
+            'price_b2b'   => ['nullable', 'numeric', 'min:0'],
+            'price_b2c'   => ['nullable', 'numeric', 'min:0'],
             'description' => ['sometimes', 'string'],
             'primary_image' => ['nullable', 'file', 'mimes:jpeg,png,jpg,gif,webp,svg', 'max:5120'],
             'is_active'     => ['nullable', 'boolean'],
