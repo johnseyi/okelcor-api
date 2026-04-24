@@ -59,14 +59,11 @@ class ImportWixProducts extends Command
         $bar = $this->output->createProgressBar($totalRows);
         $bar->start();
 
-        $imported    = 0;
-        $updated     = 0;
-        $skipped     = 0;
-        $imageCount  = 0;
-        $upsertBatch = [];
-        $imageMap    = []; // sku => raw semicolon-separated image filename string
-        $batchSize   = 200;
+        $skipped   = 0;
+        $rowsBySku = []; // SKU => merged product row
+        $imageMap  = []; // SKU => semicolon-separated image filename string
 
+        // Phase 1 — read all rows, merging duplicate SKUs into B2B/B2C price tiers
         while (($row = fgetcsv($handle)) !== false) {
             $bar->advance();
 
@@ -77,10 +74,11 @@ class ImportWixProducts extends Command
 
             $data = array_combine($headers, $row);
 
-            // Track image URLs keyed by SKU — parsed separately from product data
             $sku         = trim($data['sku'] ?? $data['field:sku'] ?? '');
             $rawImageUrl = trim($data['productimageurl'] ?? '');
-            if ($sku !== '' && $rawImageUrl !== '') {
+
+            // Record first image URL encountered per SKU
+            if ($sku !== '' && $rawImageUrl !== '' && ! isset($imageMap[$sku])) {
                 $imageMap[$sku] = $rawImageUrl;
             }
 
@@ -91,27 +89,36 @@ class ImportWixProducts extends Command
                 continue;
             }
 
-            $upsertBatch[] = $mapped;
+            if (isset($rowsBySku[$sku])) {
+                // Duplicate SKU — treat as B2B/B2C price pair
+                $existingPrice = (float) $rowsBySku[$sku]['price'];
+                $newPrice      = (float) $mapped['price'];
 
-            if (count($upsertBatch) >= $batchSize) {
-                [$imp, $upd] = $this->flushBatch($upsertBatch);
-                $imported   += $imp;
-                $updated    += $upd;
-                $imageCount += $this->downloadImagesForBatch($upsertBatch, $imageMap);
-                $upsertBatch = [];
+                $rowsBySku[$sku]['price_b2c'] = max($existingPrice, $newPrice);
+                $rowsBySku[$sku]['price_b2b'] = min($existingPrice, $newPrice);
+                $rowsBySku[$sku]['price']     = max($existingPrice, $newPrice);
+            } else {
+                $rowsBySku[$sku] = $mapped;
             }
-        }
-
-        if (! empty($upsertBatch)) {
-            [$imp, $upd] = $this->flushBatch($upsertBatch);
-            $imported   += $imp;
-            $updated    += $upd;
-            $imageCount += $this->downloadImagesForBatch($upsertBatch, $imageMap);
         }
 
         fclose($handle);
         $bar->finish();
         $this->newLine(2);
+
+        // Phase 2 — batch upsert and image downloads
+        $imported    = 0;
+        $updated     = 0;
+        $imageCount  = 0;
+        $batchSize   = 200;
+        $chunks      = array_chunk(array_values($rowsBySku), $batchSize);
+
+        foreach ($chunks as $chunk) {
+            [$imp, $upd] = $this->flushBatch($chunk);
+            $imported   += $imp;
+            $updated    += $upd;
+            $imageCount += $this->downloadImagesForBatch($chunk, $imageMap);
+        }
 
         $this->info("Import complete.");
         $this->table(
@@ -208,11 +215,13 @@ class ImportWixProducts extends Command
         $rawCost    = $this->parseDecimal($data['cost'] ?? $data['cost price'] ?? $data['field:cost'] ?? null);
 
         $parsed      = $this->parseTyreName($rawName);
-        $width       = $parsed['width'];
-        $height      = $parsed['height'];
-        $rim         = $parsed['rim'];
-        $loadIndex   = $parsed['load_index'];
-        $speedRating = $parsed['speed_rating'];
+
+        // Prefer regex-extracted values; fall back to dedicated CSV columns
+        $width       = $parsed['width']        ?? $this->parseFloatToString($data['width'] ?? null);
+        $height      = $parsed['height']       ?? $this->parseFloatToString($data['height'] ?? null);
+        $rim         = $parsed['rim']          ?? $this->parseFloatToString($data['rim'] ?? null);
+        $loadIndex   = $parsed['load_index']   ?? $this->parseFloatToString($data['load_index'] ?? null);
+        $speedRating = $parsed['speed_rating'] ?? (trim($data['speed_rating'] ?? '') ?: null);
         $season      = $parsed['season'];
 
         $size = ($width && $height && $rim)
@@ -245,6 +254,8 @@ class ImportWixProducts extends Command
             'season'       => $season,
             'type'         => $type,
             'price'        => $rawPrice ?? 0,
+            'price_b2b'    => null,
+            'price_b2c'    => null,
             'description'  => $rawDesc,
             'is_active'    => $isActive,
             'width'        => $width,
@@ -369,7 +380,7 @@ class ImportWixProducts extends Command
             ['sku'],
             [
                 'brand', 'name', 'size', 'spec', 'season', 'type',
-                'price', 'description', 'is_active',
+                'price', 'price_b2b', 'price_b2c', 'description', 'is_active',
                 'width', 'height', 'rim', 'load_index', 'speed_rating',
                 'stock', 'cost_price', 'updated_at',
             ]
@@ -394,5 +405,15 @@ class ImportWixProducts extends Command
         }
         $clean = preg_replace('/\D/', '', $value);
         return $clean !== '' ? (int) $clean : null;
+    }
+
+    /** Converts a float string like "225.0" to an integer string "225" for varchar tyre fields. */
+    private function parseFloatToString(?string $value): ?string
+    {
+        if ($value === null || trim($value) === '') {
+            return null;
+        }
+        $f = (float) $value;
+        return $f > 0 ? (string) (int) $f : null;
     }
 }

@@ -191,6 +191,7 @@ Route::prefix('v1')->group(function () {
         Route::middleware('admin.role:super_admin,admin')->group(function () {
             Route::post('products/import', [ProductImportController::class, 'import']);
             Route::get('products/export', [ProductImportController::class, 'export']);
+            Route::delete('products/all', [AdminProductController::class, 'destroyAll']);
 
             // FET engine bulk import
             Route::post('fet/engines/import', [AdminFetEngineController::class, 'import']);

@@ -40,6 +40,13 @@ class AdminProductController extends Controller
                 default => null,
             };
         }
+        if ($request->filled('segment')) {
+            match ($request->segment) {
+                'b2b'   => $query->whereNotNull('price_b2b'),
+                'b2c'   => $query->whereNotNull('price_b2c'),
+                default => null,
+            };
+        }
         if ($request->filled('search')) {
             $s = $request->search;
             $query->where(function ($q) use ($s) {
@@ -134,6 +141,17 @@ class AdminProductController extends Controller
         $product->load('images');
 
         return response()->json(['data' => $this->formatProduct($product)]);
+    }
+
+    public function destroyAll(): JsonResponse
+    {
+        $count = Product::count();
+        Product::query()->delete(); // soft-deletes via SoftDeletes trait
+
+        return response()->json([
+            'data'    => ['deleted' => $count],
+            'message' => "{$count} products moved to trash.",
+        ]);
     }
 
     public function restore(int $id): JsonResponse
