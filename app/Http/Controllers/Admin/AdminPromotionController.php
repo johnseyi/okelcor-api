@@ -21,11 +21,21 @@ class AdminPromotionController extends Controller
         ]);
     }
 
+    public function show(int $id): JsonResponse
+    {
+        $promotion = Promotion::findOrFail($id);
+
+        return response()->json(['data' => $this->format($promotion)]);
+    }
+
     public function store(Request $request): JsonResponse
     {
         $data = $request->validate([
             'title'        => ['required', 'string', 'max:200'],
             'subheadline'  => ['nullable', 'string', 'max:300'],
+            'short_text'   => ['nullable', 'string', 'max:255'],
+            'emoji'        => ['nullable', 'string', 'max:16'],
+            'placement'    => ['nullable', 'in:announcement_bar,shop_inline,both'],
             'button_text'  => ['nullable', 'string', 'max:100'],
             'button_link'  => ['nullable', 'string', 'max:300'],
             'is_active'    => ['nullable', 'boolean'],
@@ -33,9 +43,7 @@ class AdminPromotionController extends Controller
             'end_date'     => ['nullable', 'date', 'after_or_equal:start_date'],
         ]);
 
-        if (! empty($data['is_active'])) {
-            Promotion::query()->update(['is_active' => false]);
-        }
+        $data['placement'] ??= 'shop_inline';
 
         $promotion = Promotion::create($data);
 
@@ -52,17 +60,15 @@ class AdminPromotionController extends Controller
         $data = $request->validate([
             'title'        => ['sometimes', 'string', 'max:200'],
             'subheadline'  => ['nullable', 'string', 'max:300'],
+            'short_text'   => ['nullable', 'string', 'max:255'],
+            'emoji'        => ['nullable', 'string', 'max:16'],
+            'placement'    => ['nullable', 'in:announcement_bar,shop_inline,both'],
             'button_text'  => ['nullable', 'string', 'max:100'],
             'button_link'  => ['nullable', 'string', 'max:300'],
             'is_active'    => ['nullable', 'boolean'],
             'start_date'   => ['nullable', 'date'],
             'end_date'     => ['nullable', 'date', 'after_or_equal:start_date'],
         ]);
-
-        // Activating this promotion deactivates all others
-        if (isset($data['is_active']) && $data['is_active']) {
-            Promotion::where('id', '!=', $id)->update(['is_active' => false]);
-        }
 
         $promotion->update($data);
 
@@ -76,13 +82,7 @@ class AdminPromotionController extends Controller
     {
         $promotion = Promotion::findOrFail($id);
 
-        if (! $promotion->is_active) {
-            // Activating — deactivate all others first
-            Promotion::where('id', '!=', $id)->update(['is_active' => false]);
-            $promotion->update(['is_active' => true]);
-        } else {
-            $promotion->update(['is_active' => false]);
-        }
+        $promotion->update(['is_active' => ! $promotion->is_active]);
 
         return response()->json([
             'data'    => $this->format($promotion->fresh()),
@@ -134,9 +134,12 @@ class AdminPromotionController extends Controller
             'id'           => $p->id,
             'title'        => $p->title,
             'subheadline'  => $p->subheadline,
+            'short_text'   => $p->short_text,
+            'emoji'        => $p->emoji,
             'button_text'  => $p->button_text,
             'button_link'  => $p->button_link,
             'image_url'    => $p->image_url ? url(Storage::url($p->image_url)) : null,
+            'placement'    => $p->placement ?? 'shop_inline',
             'is_active'    => $p->is_active,
             'start_date'   => $p->start_date?->toDateString(),
             'end_date'     => $p->end_date?->toDateString(),

@@ -257,6 +257,7 @@ Route::prefix('v1')->group(function () {
             // Promotions
             Route::get('promotions', [AdminPromotionController::class, 'index']);
             Route::post('promotions', [AdminPromotionController::class, 'store']);
+            Route::get('promotions/{id}', [AdminPromotionController::class, 'show']);
             Route::put('promotions/{id}', [AdminPromotionController::class, 'update']);
             Route::patch('promotions/{id}/toggle', [AdminPromotionController::class, 'toggle']);
             Route::delete('promotions/{id}', [AdminPromotionController::class, 'destroy']);

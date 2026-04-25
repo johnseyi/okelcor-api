@@ -9,6 +9,9 @@ class Promotion extends Model
     protected $fillable = [
         'title',
         'subheadline',
+        'short_text',
+        'emoji',
+        'placement',
         'button_text',
         'button_link',
         'image_url',
