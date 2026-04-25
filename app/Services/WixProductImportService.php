@@ -151,6 +151,9 @@ class WixProductImportService
         $newCount     = count(array_filter($batch, fn ($r) => ! isset($existingSkus[$r['sku']])));
         $updatedCount = count($batch) - $newCount;
 
+        // Columns to overwrite on conflict.
+        // NEVER include primary_image or sort_order here — CSV rows carry no image
+        // data, so adding them would null out existing images on every re-import.
         $updateCols = [
             'brand', 'name', 'size', 'spec', 'season', 'type',
             'price', 'description', 'is_active',
@@ -158,15 +161,12 @@ class WixProductImportService
             'stock', 'cost_price', 'updated_at',
         ];
 
-        // Write the active tier and explicitly null out the other tier so that
-        // re-importing a B2B file clears stale B2C prices (and vice-versa).
-        // The batch already carries null for the inactive tier (set in import()).
+        // Only include the active price tier so the other tier is never touched
+        // on existing rows (e.g. importing segment=b2c must not reset price_b2b).
         if ($segment === 'b2b') {
             $updateCols[] = 'price_b2b';
-            $updateCols[] = 'price_b2c';
         } elseif ($segment === 'b2c') {
             $updateCols[] = 'price_b2c';
-            $updateCols[] = 'price_b2b';
         } else {
             $updateCols[] = 'price_b2b';
             $updateCols[] = 'price_b2c';
@@ -182,6 +182,11 @@ class WixProductImportService
 
     private function downloadImagesForBatch(array $batch, array $imageMap): int
     {
+        // CSV has no image column — skip entirely; never touch existing images.
+        if (empty($imageMap)) {
+            return 0;
+        }
+
         $skus = array_column($batch, 'sku');
 
         $products = Product::whereIn('sku', $skus)
