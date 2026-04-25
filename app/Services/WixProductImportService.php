@@ -170,6 +170,9 @@ class WixProductImportService
 
         Product::upsert($batch, ['sku'], $updateCols);
 
+        // Restore any previously soft-deleted products that were just upserted
+        Product::onlyTrashed()->whereIn('sku', $skus)->restore();
+
         return [$newCount, $updatedCount];
     }
 
