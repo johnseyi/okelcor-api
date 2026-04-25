@@ -161,10 +161,13 @@ class WixProductImportService
             'stock', 'cost_price', 'updated_at',
         ];
 
-        // Only include the active price tier so the other tier is never touched
-        // on existing rows (e.g. importing segment=b2c must not reset price_b2b).
+        // B2B import: write price_b2b AND explicitly null price_b2c so products
+        // imported as B2B-only never bleed into the B2C tab.
+        // B2C import: write only price_b2c; preserve price_b2b on existing rows
+        // so a B2C re-import doesn't erase previously set B2B pricing.
         if ($segment === 'b2b') {
             $updateCols[] = 'price_b2b';
+            $updateCols[] = 'price_b2c';
         } elseif ($segment === 'b2c') {
             $updateCols[] = 'price_b2c';
         } else {
