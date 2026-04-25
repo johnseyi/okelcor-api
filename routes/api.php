@@ -32,8 +32,10 @@ use App\Http\Controllers\Admin\AuthController;
 use App\Http\Controllers\Admin\MediaController;
 use App\Http\Controllers\Admin\ProductImportController;
 use App\Http\Controllers\Admin\SupplierController;
+use App\Http\Controllers\Admin\AdminCustomerController;
 use App\Http\Controllers\Admin\CustomerImportController;
 use App\Http\Controllers\Admin\EbayListingController;
+use App\Http\Controllers\Admin\SecurityController;
 use App\Http\Controllers\FetEngineController;
 use App\Http\Controllers\PromotionController;
 use App\Http\Controllers\Admin\AdminFetEngineController;
@@ -304,12 +306,30 @@ Route::prefix('v1')->group(function () {
         // Customer management — super_admin, admin
         // -----------------------------------------------------------------
         Route::middleware('admin.role:super_admin,admin')->group(function () {
-            Route::get('customers', [CustomerImportController::class, 'index']);
+            Route::get('customers/export', [AdminCustomerController::class, 'export']);
+            Route::get('customers', [AdminCustomerController::class, 'index']);
+            Route::get('customers/{id}', [AdminCustomerController::class, 'show']);
+            Route::patch('customers/{id}', [AdminCustomerController::class, 'update']);
+            Route::delete('customers/{id}', [AdminCustomerController::class, 'destroy']);
+            Route::post('customers/{id}/suspend', [AdminCustomerController::class, 'suspend']);
+            Route::post('customers/{id}/ban', [AdminCustomerController::class, 'ban']);
+            Route::post('customers/{id}/activate', [AdminCustomerController::class, 'activate']);
+            Route::post('customers/{id}/unlock', [AdminCustomerController::class, 'unlock']);
+            Route::post('customers/{id}/logout-all', [AdminCustomerController::class, 'logoutAll']);
+            Route::post('customers/{id}/force-password-reset', [AdminCustomerController::class, 'forcePasswordReset']);
         });
 
         // Customer CSV import — super_admin only
         Route::middleware('admin.role:super_admin')->group(function () {
             Route::post('customers/import', [CustomerImportController::class, 'import']);
+        });
+
+        // -----------------------------------------------------------------
+        // Security dashboard — super_admin, admin
+        // -----------------------------------------------------------------
+        Route::middleware('admin.role:super_admin,admin')->group(function () {
+            Route::get('security/summary', [SecurityController::class, 'summary']);
+            Route::get('security/events', [SecurityController::class, 'events']);
         });
 
         // -----------------------------------------------------------------

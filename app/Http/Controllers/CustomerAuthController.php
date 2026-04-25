@@ -4,7 +4,10 @@ namespace App\Http\Controllers;
 
 use App\Mail\CustomerEmailVerification;
 use App\Mail\CustomerPasswordReset;
+use App\Models\BlockedEntity;
 use App\Models\Customer;
+use App\Models\LoginHistory;
+use App\Services\SecurityEventService;
 use App\Services\VatValidationService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -64,19 +67,79 @@ class CustomerAuthController extends Controller
     // -------------------------------------------------------------------------
     public function login(Request $request): JsonResponse
     {
-        $data = $request->validate([
+        $data      = $request->validate([
             'email'    => ['required', 'email'],
             'password' => ['required', 'string'],
         ]);
+        $ip        = $request->ip();
+        $userAgent = $request->userAgent();
 
-        $customer = Customer::where('email', $data['email'])->first();
+        // Block banned IPs
+        if (BlockedEntity::isBlocked('ip', $ip)) {
+            return response()->json(['message' => 'Access denied.'], 403);
+        }
 
-        if (! $customer || ! Hash::check($data['password'], $customer->password)) {
+        $customer    = Customer::where('email', $data['email'])->first();
+        $validCreds  = $customer && Hash::check($data['password'], $customer->password);
+
+        // Log every attempt
+        if ($customer) {
+            LoginHistory::create([
+                'customer_id' => $customer->id,
+                'success'     => $validCreds,
+                'ip_address'  => $ip,
+                'user_agent'  => $userAgent,
+                'created_at'  => now(),
+            ]);
+        }
+
+        if (! $validCreds) {
+            SecurityEventService::log(
+                'failed_login', $customer?->id, $ip, $userAgent,
+                'Failed login attempt — wrong password', 'warning'
+            );
+
+            if ($customer) {
+                $customer->increment('failed_login_count');
+                $count = $customer->fresh()->failed_login_count;
+
+                // 5 consecutive failures → lock
+                if ($count >= 5 && $customer->status === 'active') {
+                    $customer->update(['status' => 'locked', 'is_active' => false]);
+                    SecurityEventService::log(
+                        'account_lockout', $customer->id, $ip, $userAgent,
+                        "Account locked after {$count} consecutive failed login attempts", 'critical'
+                    );
+                }
+
+                // 10+ failures in the past hour → auto-suspend
+                $recentFailed = LoginHistory::where('customer_id', $customer->id)
+                    ->where('success', false)
+                    ->where('created_at', '>=', now()->subHour())
+                    ->count();
+
+                if ($recentFailed >= 10 && in_array($customer->fresh()->status, ['active', 'locked'])) {
+                    $customer->update(['status' => 'suspended', 'is_active' => false]);
+                    $customer->tokens()->delete();
+                    SecurityEventService::log(
+                        'suspicious_activity', $customer->id, $ip, $userAgent,
+                        "Account suspended after {$recentFailed} failed logins within 1 hour", 'critical'
+                    );
+                }
+            }
+
             return response()->json(['message' => 'Invalid credentials.'], 401);
         }
 
-        if (! $customer->is_active) {
-            return response()->json(['message' => 'Your account has been deactivated.'], 403);
+        // Status gate
+        if ($customer->status !== 'active') {
+            $message = match ($customer->status) {
+                'banned'    => 'Your account has been banned.',
+                'suspended' => 'Your account has been suspended. Please contact support.',
+                'locked'    => 'Your account is locked due to too many failed attempts. Please contact support.',
+                default     => 'Your account is deactivated.',
+            };
+            return response()->json(['message' => $message], 403);
         }
 
         if (! $customer->email_verified_at) {
@@ -92,6 +155,13 @@ class CustomerAuthController extends Controller
                 'message'    => 'Please reset your password to continue.',
             ], 403);
         }
+
+        // Successful login — update tracking, clear failure counter
+        $customer->update([
+            'last_login_at'       => now(),
+            'last_login_ip'       => $ip,
+            'failed_login_count'  => 0,
+        ]);
 
         $token = $customer->createToken('customer-auth')->plainTextToken;
 
@@ -227,6 +297,11 @@ class CustomerAuthController extends Controller
         ]);
 
         DB::table('password_reset_tokens')->where('email', $data['email'])->delete();
+
+        SecurityEventService::log(
+            'password_reset', $customer->id, null, null,
+            'Password reset completed', 'info'
+        );
 
         return response()->json(['message' => 'Password reset successfully. You can now log in.']);
     }
