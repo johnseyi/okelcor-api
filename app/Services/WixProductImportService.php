@@ -158,11 +158,15 @@ class WixProductImportService
             'stock', 'cost_price', 'updated_at',
         ];
 
-        // Only write the relevant price column — preserve the other tier on existing rows
+        // Write the active tier and explicitly null out the other tier so that
+        // re-importing a B2B file clears stale B2C prices (and vice-versa).
+        // The batch already carries null for the inactive tier (set in import()).
         if ($segment === 'b2b') {
             $updateCols[] = 'price_b2b';
+            $updateCols[] = 'price_b2c';
         } elseif ($segment === 'b2c') {
             $updateCols[] = 'price_b2c';
+            $updateCols[] = 'price_b2b';
         } else {
             $updateCols[] = 'price_b2b';
             $updateCols[] = 'price_b2c';

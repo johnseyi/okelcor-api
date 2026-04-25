@@ -35,15 +35,15 @@ class AdminProductController extends Controller
         }
         if ($request->filled('customer_type')) {
             match ($request->customer_type) {
-                'b2b'   => $query->whereNotNull('price_b2b'),
-                'b2c'   => $query->whereNotNull('price_b2c'),
+                'b2b'   => $query->whereNotNull('price_b2b')->where('price_b2b', '>', 0),
+                'b2c'   => $query->whereNotNull('price_b2c')->where('price_b2c', '>', 0),
                 default => null,
             };
         }
         if ($request->filled('segment')) {
             match ($request->segment) {
-                'b2b'   => $query->whereNotNull('price_b2b'),
-                'b2c'   => $query->whereNotNull('price_b2c'),
+                'b2b'   => $query->whereNotNull('price_b2b')->where('price_b2b', '>', 0),
+                'b2c'   => $query->whereNotNull('price_b2c')->where('price_b2c', '>', 0),
                 default => null,
             };
         }
