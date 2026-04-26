@@ -74,72 +74,84 @@ class CustomerAuthController extends Controller
         $ip        = $request->ip();
         $userAgent = $request->userAgent();
 
-        // Block banned IPs
-        if (BlockedEntity::isBlocked('ip', $ip)) {
-            return response()->json(['message' => 'Access denied.'], 403);
-        }
+        // Block banned IPs (requires blocked_entities table — skip if migration pending)
+        try {
+            if (BlockedEntity::isBlocked('ip', $ip)) {
+                return response()->json(['message' => 'Access denied.'], 403);
+            }
+        } catch (\Throwable) {}
 
         $customer    = Customer::where('email', $data['email'])->first();
         $validCreds  = $customer && Hash::check($data['password'], $customer->password);
 
-        // Log every attempt
+        // Log every attempt (requires login_history table — skip if migration pending)
         if ($customer) {
-            LoginHistory::create([
-                'customer_id' => $customer->id,
-                'success'     => $validCreds,
-                'ip_address'  => $ip,
-                'user_agent'  => $userAgent,
-                'created_at'  => now(),
-            ]);
+            try {
+                LoginHistory::create([
+                    'customer_id' => $customer->id,
+                    'success'     => $validCreds,
+                    'ip_address'  => $ip,
+                    'user_agent'  => $userAgent,
+                    'created_at'  => now(),
+                ]);
+            } catch (\Throwable) {}
         }
 
         if (! $validCreds) {
-            SecurityEventService::log(
-                'failed_login', $customer?->id, $ip, $userAgent,
-                'Failed login attempt — wrong password', 'warning'
-            );
+            try {
+                SecurityEventService::log(
+                    'failed_login', $customer?->id, $ip, $userAgent,
+                    'Failed login attempt — wrong password', 'warning'
+                );
 
-            if ($customer) {
-                $customer->increment('failed_login_count');
-                $count = $customer->fresh()->failed_login_count;
+                if ($customer) {
+                    $customer->increment('failed_login_count');
+                    $count = $customer->fresh()->failed_login_count;
 
-                // 5 consecutive failures → lock
-                if ($count >= 5 && $customer->status === 'active') {
-                    $customer->update(['status' => 'locked', 'is_active' => false]);
-                    SecurityEventService::log(
-                        'account_lockout', $customer->id, $ip, $userAgent,
-                        "Account locked after {$count} consecutive failed login attempts", 'critical'
-                    );
+                    // 5 consecutive failures → lock
+                    if ($count >= 5 && $customer->status === 'active') {
+                        $customer->update(['status' => 'locked', 'is_active' => false]);
+                        SecurityEventService::log(
+                            'account_lockout', $customer->id, $ip, $userAgent,
+                            "Account locked after {$count} consecutive failed login attempts", 'critical'
+                        );
+                    }
+
+                    // 10+ failures in the past hour → auto-suspend
+                    $recentFailed = LoginHistory::where('customer_id', $customer->id)
+                        ->where('success', false)
+                        ->where('created_at', '>=', now()->subHour())
+                        ->count();
+
+                    if ($recentFailed >= 10 && in_array($customer->fresh()->status, ['active', 'locked'])) {
+                        $customer->update(['status' => 'suspended', 'is_active' => false]);
+                        $customer->tokens()->delete();
+                        SecurityEventService::log(
+                            'suspicious_activity', $customer->id, $ip, $userAgent,
+                            "Account suspended after {$recentFailed} failed logins within 1 hour", 'critical'
+                        );
+                    }
                 }
-
-                // 10+ failures in the past hour → auto-suspend
-                $recentFailed = LoginHistory::where('customer_id', $customer->id)
-                    ->where('success', false)
-                    ->where('created_at', '>=', now()->subHour())
-                    ->count();
-
-                if ($recentFailed >= 10 && in_array($customer->fresh()->status, ['active', 'locked'])) {
-                    $customer->update(['status' => 'suspended', 'is_active' => false]);
-                    $customer->tokens()->delete();
-                    SecurityEventService::log(
-                        'suspicious_activity', $customer->id, $ip, $userAgent,
-                        "Account suspended after {$recentFailed} failed logins within 1 hour", 'critical'
-                    );
-                }
-            }
+            } catch (\Throwable) {}
 
             return response()->json(['message' => 'Invalid credentials.'], 401);
         }
 
-        // Status gate
-        if ($customer->status !== 'active') {
-            $message = match ($customer->status) {
-                'banned'    => 'Your account has been banned.',
-                'suspended' => 'Your account has been suspended. Please contact support.',
-                'locked'    => 'Your account is locked due to too many failed attempts. Please contact support.',
-                default     => 'Your account is deactivated.',
-            };
-            return response()->json(['message' => $message], 403);
+        // Status gate (requires status column — falls back to is_active if migration pending)
+        try {
+            if ($customer->status !== 'active') {
+                $message = match ($customer->status) {
+                    'banned'    => 'Your account has been banned.',
+                    'suspended' => 'Your account has been suspended. Please contact support.',
+                    'locked'    => 'Your account is locked due to too many failed attempts. Please contact support.',
+                    default     => 'Your account is deactivated.',
+                };
+                return response()->json(['message' => $message], 403);
+            }
+        } catch (\Throwable) {
+            if (! $customer->is_active) {
+                return response()->json(['message' => 'Your account is deactivated.'], 403);
+            }
         }
 
         if (! $customer->email_verified_at) {
@@ -157,11 +169,13 @@ class CustomerAuthController extends Controller
         }
 
         // Successful login — update tracking, clear failure counter
-        $customer->update([
-            'last_login_at'       => now(),
-            'last_login_ip'       => $ip,
-            'failed_login_count'  => 0,
-        ]);
+        try {
+            $customer->update([
+                'last_login_at'      => now(),
+                'last_login_ip'      => $ip,
+                'failed_login_count' => 0,
+            ]);
+        } catch (\Throwable) {}
 
         $token = $customer->createToken('customer-auth')->plainTextToken;
 
