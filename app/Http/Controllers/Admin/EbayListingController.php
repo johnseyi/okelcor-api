@@ -25,7 +25,7 @@ class EbayListingController extends Controller
     {
         $products = Product::where('ebay_listed', true)
             ->orderBy('updated_at', 'desc')
-            ->get(['id', 'sku', 'name', 'brand', 'price', 'stock', 'ebay_listed', 'ebay_listing_id']);
+            ->get(['id', 'sku', 'name', 'brand', 'price', 'stock', 'ebay_listed', 'ebay_item_id']);
 
         return response()->json([
             'data' => $products,
@@ -42,7 +42,7 @@ class EbayListingController extends Controller
 
         $product->update([
             'ebay_listed'     => true,
-            'ebay_listing_id' => $listingId,
+            'ebay_item_id' => $listingId,
         ]);
 
         return response()->json([
@@ -63,7 +63,7 @@ class EbayListingController extends Controller
 
         $product->update([
             'ebay_listed'     => false,
-            'ebay_listing_id' => null,
+            'ebay_item_id' => null,
         ]);
 
         return response()->json([

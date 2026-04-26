@@ -255,6 +255,7 @@ class AdminProductController extends Controller
             'is_active'     => (bool) $p->is_active,
             'in_stock'      => (bool) $p->in_stock,
             'ebay_listed'   => (bool) $p->ebay_listed,
+            'ebay_item_id'  => $p->ebay_item_id,
             'sort_order'    => $p->sort_order,
             'created_at'    => $p->created_at?->toIso8601String(),
         ];

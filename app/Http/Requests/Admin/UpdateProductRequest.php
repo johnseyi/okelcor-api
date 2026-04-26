@@ -32,6 +32,8 @@ class UpdateProductRequest extends FormRequest
             'is_active'     => ['nullable', 'boolean'],
             'in_stock'      => ['nullable', 'boolean'],
             'sort_order'    => ['nullable', 'integer'],
+            'ebay_listed'   => ['nullable', 'boolean'],
+            'ebay_item_id'  => ['nullable', 'string', 'max:100'],
         ];
     }
 }

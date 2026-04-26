@@ -31,7 +31,7 @@ class Product extends Model
         'stock',
         'cost_price',
         'ebay_listed',
-        'ebay_listing_id',
+        'ebay_item_id',
         'in_stock',
     ];
 
