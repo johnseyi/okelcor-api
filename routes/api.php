@@ -60,6 +60,7 @@ Route::prefix('v1')->group(function () {
     // Customer auth — protected
     Route::middleware('auth.customer')->prefix('auth')->group(function () {
         Route::post('logout', [CustomerAuthController::class, 'logout']);
+        Route::post('record-login', [CustomerAuthController::class, 'recordLogin']);
         Route::get('me', [CustomerAuthController::class, 'me']);
         Route::put('profile', [CustomerAuthController::class, 'updateProfile']);
         Route::put('change-password', [CustomerAuthController::class, 'changePassword']);

@@ -199,6 +199,47 @@ class CustomerAuthController extends Controller
     }
 
     // -------------------------------------------------------------------------
+    // POST /api/v1/auth/record-login  (protected)
+    // -------------------------------------------------------------------------
+    public function recordLogin(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'last_login_at'       => ['nullable', 'date'],
+            'last_login_ip'       => ['nullable', 'string', 'max:45'],
+            'last_login_location' => ['nullable', 'string', 'max:100'],
+            'user_agent'          => ['nullable', 'string', 'max:500'],
+        ]);
+
+        $customer  = $request->user();
+        $loginAt   = isset($data['last_login_at']) ? now()->parse($data['last_login_at']) : now();
+        $ip        = $data['last_login_ip'] ?? $request->ip();
+        $location  = $data['last_login_location'] ?? null;
+        $userAgent = $data['user_agent'] ?? $request->userAgent();
+
+        try {
+            $customer->update([
+                'last_login_at'       => $loginAt,
+                'last_login_ip'       => $ip,
+                'last_login_location' => $location,
+                'failed_login_count'  => 0,
+            ]);
+        } catch (\Throwable) {}
+
+        try {
+            LoginHistory::create([
+                'customer_id' => $customer->id,
+                'success'     => true,
+                'ip_address'  => $ip,
+                'user_agent'  => $userAgent,
+                'location'    => $location,
+                'created_at'  => $loginAt,
+            ]);
+        } catch (\Throwable) {}
+
+        return response()->json(['message' => 'ok']);
+    }
+
+    // -------------------------------------------------------------------------
     // POST /api/v1/auth/resend-verification
     // -------------------------------------------------------------------------
     public function resendVerification(Request $request): JsonResponse
