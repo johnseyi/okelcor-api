@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Models\Customer;
 use App\Models\QuoteRequest;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -16,6 +17,14 @@ class AdminQuoteRequestController extends Controller
 
         if ($request->filled('status')) {
             $query->where('status', $request->status);
+        }
+
+        if ($request->filled('customer_id')) {
+            $query->where('customer_id', $request->integer('customer_id'));
+        }
+
+        if ($request->filled('customer_email')) {
+            $query->where('email', $request->customer_email);
         }
 
         if ($request->filled('q')) {

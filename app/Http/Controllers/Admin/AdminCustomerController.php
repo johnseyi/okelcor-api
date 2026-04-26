@@ -150,7 +150,7 @@ class AdminCustomerController extends Controller
             'Admin updated customer profile', 'info'
         );
 
-        return response()->json(['data' => $this->formatSummary($customer->fresh()), 'message' => 'Updated.']);
+        return response()->json(['success' => true, 'data' => $this->formatSummary($customer->fresh()), 'message' => 'Customer updated successfully.']);
     }
 
     // ── DELETE /admin/customers/{id} ──────────────────────────────────────────
@@ -179,7 +179,7 @@ class AdminCustomerController extends Controller
             'Account suspended by admin', 'warning'
         );
 
-        return response()->json(['data' => $this->formatSummary($customer->fresh()), 'message' => 'Customer suspended.']);
+        return response()->json(['success' => true, 'message' => 'Account suspended successfully.']);
     }
 
     // ── POST /admin/customers/{id}/ban ────────────────────────────────────────
@@ -210,7 +210,7 @@ class AdminCustomerController extends Controller
             'Account banned by admin', 'critical'
         );
 
-        return response()->json(['data' => $this->formatSummary($customer->fresh()), 'message' => 'Customer banned.']);
+        return response()->json(['success' => true, 'message' => 'Account banned successfully.']);
     }
 
     // ── POST /admin/customers/{id}/activate ───────────────────────────────────
@@ -231,7 +231,7 @@ class AdminCustomerController extends Controller
             'Account activated by admin', 'info'
         );
 
-        return response()->json(['data' => $this->formatSummary($customer->fresh()), 'message' => 'Customer activated.']);
+        return response()->json(['success' => true, 'message' => 'Account activated successfully.']);
     }
 
     // ── POST /admin/customers/{id}/unlock ─────────────────────────────────────
@@ -254,7 +254,7 @@ class AdminCustomerController extends Controller
             'Account unlocked by admin', 'info'
         );
 
-        return response()->json(['data' => $this->formatSummary($customer->fresh()), 'message' => 'Customer unlocked.']);
+        return response()->json(['success' => true, 'message' => 'Account unlocked successfully.']);
     }
 
     // ── POST /admin/customers/{id}/logout-all ─────────────────────────────────
@@ -271,7 +271,7 @@ class AdminCustomerController extends Controller
             "All sessions invalidated by admin ({$count} tokens revoked)", 'info'
         );
 
-        return response()->json(['message' => "{$count} session(s) invalidated."]);
+        return response()->json(['success' => true, 'message' => "{$count} session(s) invalidated successfully."]);
     }
 
     // ── POST /admin/customers/{id}/force-password-reset ───────────────────────
@@ -305,7 +305,27 @@ class AdminCustomerController extends Controller
             'Force password reset initiated by admin', 'info'
         );
 
-        return response()->json(['message' => 'Password reset email sent and sessions invalidated.']);
+        return response()->json(['success' => true, 'message' => 'Password reset email sent and sessions invalidated.']);
+    }
+
+    // ── GET /admin/customers/{id}/sessions ───────────────────────────────────
+
+    public function sessions(int $id): JsonResponse
+    {
+        $customer = Customer::findOrFail($id);
+
+        $sessions = $customer->tokens()
+            ->orderByDesc('last_used_at')
+            ->get()
+            ->map(fn ($t) => [
+                'id'          => $t->id,
+                'ip_address'  => null,
+                'user_agent'  => $t->name,
+                'created_at'  => $t->created_at?->toIso8601String(),
+                'last_active' => $t->last_used_at?->toIso8601String(),
+            ]);
+
+        return response()->json(['data' => $sessions->values()]);
     }
 
     // ── GET /admin/customers/export ───────────────────────────────────────────

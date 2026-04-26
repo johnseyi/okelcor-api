@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Models\Customer;
 use App\Models\Order;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -20,6 +21,15 @@ class AdminOrderController extends Controller
 
         if ($request->filled('payment_status')) {
             $query->where('payment_status', $request->payment_status);
+        }
+
+        if ($request->filled('customer_email')) {
+            $query->where('customer_email', $request->customer_email);
+        }
+
+        if ($request->filled('customer_id')) {
+            $email = Customer::where('id', $request->integer('customer_id'))->value('email');
+            $query->where('customer_email', $email ?? '');
         }
 
         if ($request->filled('q')) {

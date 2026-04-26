@@ -318,6 +318,7 @@ Route::prefix('v1')->group(function () {
             Route::post('customers/{id}/unlock', [AdminCustomerController::class, 'unlock']);
             Route::post('customers/{id}/logout-all', [AdminCustomerController::class, 'logoutAll']);
             Route::post('customers/{id}/force-password-reset', [AdminCustomerController::class, 'forcePasswordReset']);
+            Route::get('customers/{id}/sessions', [AdminCustomerController::class, 'sessions']);
         });
 
         // Customer CSV import — super_admin only

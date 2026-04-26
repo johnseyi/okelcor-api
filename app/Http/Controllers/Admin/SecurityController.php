@@ -83,6 +83,7 @@ class SecurityController extends Controller
                 'customer_email' => $e->customer?->email,
                 'ip_address'     => $e->ip_address,
                 'user_agent'     => $e->user_agent,
+                'location'       => $e->location,
                 'created_at'     => $e->created_at?->toIso8601String(),
             ])->values(),
             'meta' => [
