@@ -12,6 +12,10 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware): void {
+        // Trust all proxies — required on Hostinger (nginx reverse proxy)
+        // so Laravel sees HTTPS, correct client IPs, and correct APP_URL
+        $middleware->trustProxies(at: '*');
+
         // CORS — applied globally so preflight OPTIONS requests are handled
         $middleware->use([
             \Illuminate\Http\Middleware\HandleCors::class,
