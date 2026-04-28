@@ -80,13 +80,12 @@ Route::prefix('v1')->group(function () {
     // Public — no auth required
     // -------------------------------------------------------------------------
 
-    // Products — catalogue requires customer login; brands/specs remain public
+    // Products — temporarily public for payment gateway review
+    // TODO: restore auth.customer middleware after review is complete
     Route::get('products/brands', [ProductController::class, 'brands']);
     Route::get('products/specs', [ProductController::class, 'specs']);
-    Route::middleware('auth.customer')->group(function () {
-        Route::get('products', [ProductController::class, 'index']);
-        Route::get('products/{id}', [ProductController::class, 'show']);
-    });
+    Route::get('products', [ProductController::class, 'index']);
+    Route::get('products/{id}', [ProductController::class, 'show']);
 
     // Articles
     Route::get('articles', [ArticleController::class, 'index']);
