@@ -55,10 +55,14 @@ class CustomerAuthController extends Controller
             'vat_verified' => $vatVerified,
         ]);
 
-        $this->sendVerificationEmail($customer);
+        try {
+            $this->sendVerificationEmail($customer);
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::error('Verification email failed for customer ' . $customer->id . ': ' . $e->getMessage());
+        }
 
         return response()->json([
-            'message' => 'Please check your email to verify your account.',
+            'message' => 'Registration successful. Please check your email to verify your account.',
         ], 201);
     }
 

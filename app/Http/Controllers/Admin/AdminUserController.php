@@ -9,6 +9,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
@@ -107,12 +108,48 @@ class AdminUserController extends Controller
             'must_change_password' => true,
         ]);
 
-        Mail::to($user->email)->send(new AdminWelcome($user, $temporaryPassword));
+        $emailSent = true;
+        try {
+            Mail::to($user->email)->send(new AdminWelcome($user, $temporaryPassword));
+        } catch (\Throwable $e) {
+            $emailSent = false;
+            Log::error('Admin welcome email failed for user ' . $user->id . ': ' . $e->getMessage());
+        }
+
+        $message = $emailSent
+            ? 'Admin user created. A welcome email with login instructions has been sent.'
+            : 'Admin user created. Welcome email could not be delivered — use the resend-credentials endpoint to retry.';
 
         return response()->json([
-            'data'    => $this->formatUser($user),
-            'message' => 'Admin user created. A welcome email with login instructions has been sent.',
+            'data'         => $this->formatUser($user),
+            'message'      => $message,
+            'email_sent'   => $emailSent,
         ], 201);
+    }
+
+    public function resendCredentials(int $id): JsonResponse
+    {
+        $user = AdminUser::findOrFail($id);
+
+        $temporaryPassword = Str::password(16);
+
+        $user->update([
+            'password'             => $temporaryPassword,
+            'must_change_password' => true,
+        ]);
+
+        try {
+            Mail::to($user->email)->send(new AdminWelcome($user, $temporaryPassword));
+        } catch (\Throwable $e) {
+            Log::error('Admin credentials resend failed for user ' . $user->id . ': ' . $e->getMessage());
+            return response()->json([
+                'message' => 'Credentials reset but email delivery failed. Check mail driver configuration.',
+            ], 502);
+        }
+
+        return response()->json([
+            'message' => 'New temporary credentials sent to ' . $user->email . '.',
+        ]);
     }
 
     public function show(int $id): JsonResponse

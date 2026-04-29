@@ -184,6 +184,7 @@ Route::prefix('v1')->group(function () {
             Route::get('users/{id}', [AdminUserController::class, 'show']);
             Route::put('users/{id}', [AdminUserController::class, 'update']);
             Route::delete('users/{id}', [AdminUserController::class, 'destroy']);
+            Route::post('users/{id}/resend-credentials', [AdminUserController::class, 'resendCredentials']);
         });
 
         // -----------------------------------------------------------------
