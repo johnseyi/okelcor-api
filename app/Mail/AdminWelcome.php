@@ -20,7 +20,7 @@ class AdminWelcome extends Mailable
 
     public function envelope(): Envelope
     {
-        return new Envelope(subject: 'Your Okelcor Admin Access');
+        return new Envelope(subject: 'Your Okelcor Admin Account & Login Credentials');
     }
 
     public function content(): Content
