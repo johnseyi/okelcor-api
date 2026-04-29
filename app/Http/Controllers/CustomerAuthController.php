@@ -488,11 +488,21 @@ class CustomerAuthController extends Controller
     // -------------------------------------------------------------------------
     private function sendVerificationEmail(Customer $customer): void
     {
+        // APP_URL must be the API URL (https://api.okelcor.de), not the frontend.
+        // forceRootUrl + forceScheme ensure signed links always point to this
+        // backend and always use HTTPS even when behind an HTTP-only reverse proxy.
+        $apiRoot = rtrim(config('app.url'), '/');
+        URL::forceRootUrl($apiRoot);
+        URL::forceScheme('https');
+
         $url = URL::temporarySignedRoute(
             'verification.verify',
             now()->addHours(24),
             ['id' => $customer->id, 'hash' => sha1($customer->email)]
         );
+
+        URL::forceRootUrl(null);
+        URL::forceScheme(null);
 
         Mail::to($customer->email)->send(new CustomerEmailVerification($customer, $url));
     }
