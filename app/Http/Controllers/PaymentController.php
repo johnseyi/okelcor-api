@@ -4,6 +4,8 @@ namespace App\Http\Controllers;
 
 use App\Mail\OrderConfirmation;
 use App\Mail\OrderReceived;
+use App\Models\Customer;
+use App\Models\Invoice;
 use App\Models\Order;
 use App\Models\OrderItem;
 use App\Models\Product;
@@ -265,8 +267,10 @@ class PaymentController extends Controller
 
         $order->load('items');
 
+        $invoice = $this->createInvoiceForOrder($order);
+
         try {
-            Mail::to($order->customer_email)->send(new OrderConfirmation($order));
+            Mail::to($order->customer_email)->send(new OrderConfirmation($order, $invoice));
             Log::info('Stripe order confirmation email sent', [
                 'ref'            => $order->ref,
                 'customer_email' => $order->customer_email,
@@ -316,6 +320,66 @@ class PaymentController extends Controller
         $order->update([
             'payment_status' => 'refunded',
         ]);
+    }
+
+    private function createInvoiceForOrder(Order $order): ?Invoice
+    {
+        try {
+            $customer = Customer::where('email', $order->customer_email)->first();
+
+            if (! $customer) {
+                Log::info('Invoice skipped: no customer account for order', [
+                    'ref'   => $order->ref,
+                    'email' => $order->customer_email,
+                ]);
+                return null;
+            }
+
+            // Idempotency: return existing invoice if already created for this order_ref
+            $existing = Invoice::where('order_ref', $order->ref)->first();
+            if ($existing) {
+                Log::info('Invoice already exists for order, skipping', ['ref' => $order->ref]);
+                return $existing;
+            }
+
+            $invoice = DB::transaction(function () use ($customer, $order) {
+                $year   = now()->year;
+                $prefix = "INV-{$year}-";
+
+                // Lock year's rows to prevent concurrent sequence conflicts
+                $lastNumber = Invoice::where('invoice_number', 'like', "{$prefix}%")
+                    ->lockForUpdate()
+                    ->orderByDesc('invoice_number')
+                    ->value('invoice_number');
+
+                $sequence      = $lastNumber ? (int) substr($lastNumber, strlen($prefix)) + 1 : 1;
+                $invoiceNumber = $prefix . str_pad($sequence, 4, '0', STR_PAD_LEFT);
+
+                return Invoice::create([
+                    'customer_id'    => $customer->id,
+                    'invoice_number' => $invoiceNumber,
+                    'issued_at'      => now(),
+                    'due_at'         => null,
+                    'amount'         => $order->total,
+                    'status'         => 'paid',
+                    'pdf_url'        => null,
+                    'order_ref'      => $order->ref,
+                ]);
+            });
+
+            Log::info('Invoice created for order', [
+                'ref'            => $order->ref,
+                'invoice_number' => $invoice->invoice_number,
+            ]);
+
+            return $invoice;
+        } catch (\Throwable $e) {
+            Log::warning('Invoice creation failed for order', [
+                'ref'   => $order->ref,
+                'error' => $e->getMessage(),
+            ]);
+            return null;
+        }
     }
 
     private function stripeObjectToArray(mixed $object): array

@@ -103,9 +103,25 @@
             </table>
 
             <!-- CTA -->
-            <p style="margin:0 0 32px 0;font-family:Arial,Helvetica,sans-serif;font-size:14px;">
+            <p style="margin:0 0 16px 0;font-family:Arial,Helvetica,sans-serif;font-size:14px;">
                 <a href="{{ $trackingUrl }}" style="color:#171a20;text-decoration:underline;">View your order: {{ $trackingUrl }}</a>
             </p>
+
+            @if ($invoice)
+            <!-- Invoice reference -->
+            <table width="100%" cellpadding="0" cellspacing="0" border="0" style="border:1px solid #eeeeee;margin-bottom:32px;">
+                <tr>
+                    <td style="padding:12px 16px;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#5c5e62;width:40%;background-color:#fafafa;">Invoice number</td>
+                    <td style="padding:12px 16px;font-family:Arial,Helvetica,sans-serif;font-size:13px;font-weight:700;color:#171a20;">{{ $invoice->invoice_number }}</td>
+                </tr>
+                <tr>
+                    <td style="padding:12px 16px;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#5c5e62;background-color:#fafafa;border-top:1px solid #eeeeee;">Download / view</td>
+                    <td style="padding:12px 16px;font-family:Arial,Helvetica,sans-serif;font-size:13px;border-top:1px solid #eeeeee;">
+                        <a href="{{ $invoicesUrl }}" style="color:#171a20;text-decoration:underline;">View invoices in your account</a>
+                    </td>
+                </tr>
+            </table>
+            @endif
         </td>
     </tr>
 
