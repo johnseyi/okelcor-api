@@ -2,24 +2,42 @@
 Last updated: 2026-04-20
 
 ## Project
-Laravel 11 / PHP 8.3 REST API for Okelcor B2B tyre wholesale.
+# Session Handoff — Okelcor API
+Last updated: 2026-05-02
+
+## Project
+Laravel 13.2 / PHP 8.3 REST API for Okelcor B2B tyre wholesale.
+
 - Local: `http://localhost:8000`
-- Production: `https://api.okelcor.de` (hosted on Hostinger at `takeovercreatives.com/public_html/okelcor-api`)
-- DB: `okelcor_cms` on MySQL 8 via Laragon (root, no password)
-- Auth: Laravel Sanctum token (Bearer) — admin routes AND customer routes
-- All responses: `application/json` (ForceJsonResponse middleware)
-- GitHub: `https://github.com/johnseyi/okelcor-api.git` (branch: `main`)
+- Production API: `https://api.okelcor.com`
+- Frontend production: `https://okelcor.com`
+- DB: `okelcor_cms` on MySQL 8
+- Auth: Laravel Sanctum token (Bearer) — admin routes and customer routes
+- All responses: `application/json` via ForceJsonResponse middleware
+- GitHub: `https://github.com/johnseyi/okelcor-api.git`
+- Active deploy branch: `main`
+
+Important:
+- `okelcor.com` is the canonical frontend domain.
+- `api.okelcor.com` is the canonical API domain.
+- Old `.de` references should be treated as legacy unless explicitly confirmed otherwise.
 
 ---
 
-## Hostinger Deploy Command (run after every git pull)
+## namecheap Deploy Command (run after every git pull)
+## namecheap Deploy Command
+
+Run after every backend deployment:
+
 ```bash
-cd /home/u978121777/domains/takeovercreatives.com/public_html/okelcor-api
-git pull origin main
+cd /home/u978121777/domains/okelcor.com/public_html/okelcor-api
+git fetch origin
+git reset --hard origin/main
+composer install --no-dev
 /opt/alt/php83/usr/bin/php artisan migrate --force
+/opt/alt/php83/usr/bin/php artisan config:clear
 /opt/alt/php83/usr/bin/php artisan config:cache
 /opt/alt/php83/usr/bin/php artisan route:cache
-```
 
 ---
 
