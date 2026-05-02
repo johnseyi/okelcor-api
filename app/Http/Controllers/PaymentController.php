@@ -260,7 +260,7 @@ class PaymentController extends Controller
         $order->update([
             'payment_status'     => 'paid',
             'payment_session_id' => $object['id'] ?? $order->payment_session_id,
-            'status'             => 'processing',
+            'status'             => 'confirmed',
         ]);
 
         $order->load('items');
