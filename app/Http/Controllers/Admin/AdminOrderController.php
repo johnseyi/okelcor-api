@@ -79,6 +79,13 @@ class AdminOrderController extends Controller
         ]);
 
         $order = Order::findOrFail($id);
+
+        if ($request->input('status') === 'cancelled' && in_array($order->status, ['cancelled', 'delivered'], true)) {
+            return response()->json([
+                'message' => 'Order cannot be cancelled in its current state.',
+            ], 409);
+        }
+
         $order->update($request->only(['status', 'carrier', 'tracking_number', 'container_number', 'estimated_delivery', 'eta', 'admin_notes']));
         $order->load('items');
 
@@ -128,6 +135,13 @@ class AdminOrderController extends Controller
         ]);
 
         $order = Order::findOrFail($id);
+
+        if ($request->input('status') === 'cancelled' && in_array($order->status, ['cancelled', 'delivered'], true)) {
+            return response()->json([
+                'message' => 'Order cannot be cancelled in its current state.',
+            ], 409);
+        }
+
         $order->update($request->only(['status', 'carrier', 'tracking_number', 'container_number', 'estimated_delivery', 'eta']));
 
         return response()->json([
