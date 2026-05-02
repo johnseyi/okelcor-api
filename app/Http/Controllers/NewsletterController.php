@@ -62,6 +62,6 @@ class NewsletterController extends Controller
             'token'        => null,
         ]);
 
-        return redirect()->away('https://okelcor.de/?newsletter=confirmed');
+        return redirect()->away('https://okelcor.com/?newsletter=confirmed');
     }
 }

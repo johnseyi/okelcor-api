@@ -103,7 +103,7 @@ GET    /api/v1/settings
 GET    /api/v1/search
 POST   /api/v1/vat/validate
 POST   /api/v1/payments/create-session
-POST   /api/v1/payments/webhook            ← Adyen Standard Notification handler
+POST   /api/v1/payments/webhook            ← Stripe webhook handler
 GET    /api/v1/tracking/{container}        ← auto-detects DHL vs sea freight
 GET    /api/v1/orders                      ← requires ?email=
 GET    /api/v1/orders/{ref}
@@ -276,7 +276,7 @@ Frontend must update its auth store from this response to clear the "change pass
 - No password field in request — backend generates a 16-char secure temp password
 - Sets `must_change_password = true`
 - Sends `AdminWelcome` email to new user with temp password + login URL
-- Login URL comes from `FRONTEND_URL` env var — **currently set to `https://okelcor-website.vercel.app` on Hostinger; update to `https://okelcor.de` when domain goes live**
+- Login URL comes from `FRONTEND_URL` env var — **currently set to `https://okelcor-website.vercel.app` on Hostinger; update to `https://okelcor.com` when domain goes live**
 - Plain text password is never stored or returned after the email is sent
 
 ---
@@ -450,7 +450,7 @@ NOT through the Vercel proxy.
 | `total` | decimal(10,2) | |
 | `status` | enum | pending / confirmed / processing / shipped / delivered / cancelled |
 | `payment_status` | enum | pending / paid / failed / refunded |
-| `payment_session_id` | varchar(100) | nullable — Adyen session/PSP reference |
+| `payment_session_id` | varchar(100) | nullable — Stripe Checkout Session ID |
 | `mode` | enum | live / manual |
 | `carrier` | varchar(100) | nullable |
 | `carrier_type` | enum | sea / air / dhl / road — nullable |
@@ -562,21 +562,26 @@ Locales ENUM: `en`, `de`, `fr`, `es`
 **Mailables:**
 - `AdminWelcome` → view: `emails.admin-welcome`
 
-### Adyen Payment Gateway (replaced Stripe)
-- Package: `adyen/php-api-library` v29
-- Config: `config/services.php` → `adyen.api_key`, `adyen.merchant_account`, `adyen.environment`, `adyen.client_key`
-- Env vars: `ADYEN_API_KEY`, `ADYEN_MERCHANT_ACCOUNT`, `ADYEN_ENVIRONMENT` (test/live), `ADYEN_CLIENT_KEY`
-- `AdyenService::createPaymentSession(float $amount, string $currency, string $orderRef, string $customerEmail): array`
+### Stripe Checkout Payment Gateway
+- Active gateway: Stripe Checkout.
+- Package: `stripe/stripe-php`.
+- Config: `config/services.php` → `stripe.secret`, `stripe.webhook_secret`, `stripe.currency`.
+- Env vars: `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_CURRENCY`.
+- `StripeService::createCheckoutSession(array $orderData): array`.
 
 **Flow:**
-1. Frontend sends cart to `POST /api/v1/payments/create-session`
-2. Backend validates, looks up DB prices, saves `pending` order with `mode=live`, calls Adyen Sessions API
-3. Returns `{ "data": { "session_id": "...", "session_data": "...", "client_key": "..." } }`
-4. Frontend initialises Adyen Drop-in/Components with `session_id`, `session_data`, `client_key`
-5. Adyen sends webhook to `POST /api/v1/payments/webhook`
-6. Backend handles `AUTHORISATION` event → `status=processing, payment_status=paid`; also handles `CANCELLATION`/`CANCEL_OR_REFUND` → `payment_status=refunded`
+1. Frontend sends cart to `POST /api/v1/payments/create-session`.
+2. Backend validates, looks up DB prices, saves a `pending` order with `mode=live` and `payment_method=stripe`.
+3. Backend calls Stripe Checkout Session API and stores the Checkout Session ID in `orders.payment_session_id`.
+4. Returns `{ "data": { "provider": "stripe", "order_ref": "...", "checkout_session_id": "...", "checkout_url": "https://checkout.stripe.com/..." } }`.
+5. Stripe sends webhook events to `POST /api/v1/payments/webhook`.
+6. Backend verifies the `Stripe-Signature` header using `STRIPE_WEBHOOK_SECRET`.
+7. Handled events: `checkout.session.completed` → `payment_status=paid`, `status=processing`; `payment_intent.payment_failed` → `payment_status=failed`, `status=cancelled`; `charge.refunded` → `payment_status=refunded`.
 
-**Webhook response:** must return plain text `[accepted]` — not JSON. Route is excluded from `ForceJsonResponse` middleware.
+**Legacy gateways:**
+- Adyen code/package/config remain present but inactive until business account/API credentials are approved.
+- Mollie code/config remain present, but `POST /api/v1/orders/mollie-webhook` returns HTTP 410 with `{ "message": "Mollie payments are currently disabled." }`.
+- Do not use Adyen or Mollie unless explicitly re-enabled later.
 
 ### Order Confirmation Emails
 - `OrderConfirmation` mailable → sent to customer on `POST /api/v1/orders`
@@ -656,8 +661,8 @@ carrier, tracking_number, container_number, estimated_delivery, eta, created_at,
 Allowed origins:
 - `http://localhost:3000`
 - `https://okelcor-website.vercel.app`
-- `https://okelcor.de`
-- `https://www.okelcor.de`
+- `https://okelcor.com`
+- `https://www.okelcor.com`
 
 ---
 
@@ -736,7 +741,7 @@ Conversion: `url(Storage::url($relativePath))` in controller formatters.
 | Item | Notes |
 |------|-------|
 | eBay production credentials | Live keys set in Hostinger .env — `EBAY_ENVIRONMENT=production` |
-| Adyen webhook HMAC verification | Currently accepts all POST to /payments/webhook — add HMAC check in production |
+| Adyen approval | Legacy/inactive until business account/API credentials are approved |
 | `GET /admin/products?trashed=only` | Restore works but no dedicated trashed product list endpoint |
 | Admin customer edit/deactivate | GET /admin/customers list exists; no PUT/DELETE per customer yet |
 | Invoice population | `invoices` table and API exist; no admin UI or import flow yet to create invoice records |
@@ -757,11 +762,19 @@ Web server: Apache
 
 ## Required `.env` on Hostinger
 ```env
-# Adyen
+# Stripe Checkout (active)
+STRIPE_SECRET_KEY=
+STRIPE_WEBHOOK_SECRET=
+STRIPE_CURRENCY=eur
+
+# Adyen (legacy/inactive)
 ADYEN_API_KEY=
 ADYEN_MERCHANT_ACCOUNT=
 ADYEN_ENVIRONMENT=test
 ADYEN_CLIENT_KEY=
+
+# Mollie (legacy/inactive; public webhook returns HTTP 410)
+MOLLIE_WEBHOOK_SECRET=
 
 # Order notifications
 ORDER_EMAIL=orders@okelcor.de
@@ -779,6 +792,6 @@ EBAY_ENVIRONMENT=production
 
 # Frontend URL — used in ALL email links and redirects (verify email, password reset, admin welcome)
 # Currently: https://okelcor-website.vercel.app
-# Change to https://okelcor.de when domain goes live, then run: php artisan config:cache
+# Change to https://okelcor.com when domain goes live, then run: php artisan config:cache
 FRONTEND_URL=https://okelcor-website.vercel.app
 ```

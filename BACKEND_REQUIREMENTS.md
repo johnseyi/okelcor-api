@@ -880,10 +880,48 @@ Returns paginated list ordered by `created_at DESC`.
 }
 ```
 
-> `mode: "manual"` until a live payment SDK is integrated. When Stripe/PayPal is added, the
-> route should process the charge and return `mode: "live"`. No frontend changes are required.
+> `POST /api/v1/orders` remains the manual order intake path. Active online payments use
+> the Stripe Checkout endpoints below.
 
 **Rate limit:** 10 requests per IP per hour.
+
+---
+
+#### `POST /api/v1/payments/create-session` — Public
+
+Active gateway: Stripe Checkout.
+
+**Behaviour:**
+1. Validate checkout delivery and cart payload.
+2. Look up DB product prices and save a pending order with `payment_method=stripe`.
+3. Create order_items.
+4. Create a Stripe Checkout Session.
+5. Store the Stripe Checkout Session ID in `orders.payment_session_id`.
+
+**Response `201`:**
+```json
+{
+  "data": {
+    "provider": "stripe",
+    "order_ref": "OKL-X7FA2B",
+    "checkout_session_id": "cs_test_...",
+    "checkout_url": "https://checkout.stripe.com/..."
+  }
+}
+```
+
+#### `POST /api/v1/payments/webhook` — Stripe
+
+- Verifies the `Stripe-Signature` header using `STRIPE_WEBHOOK_SECRET`.
+- Handles `checkout.session.completed`, `payment_intent.payment_failed`, and `charge.refunded`.
+- Resolves orders by `payment_session_id`, `metadata.order_ref`, or `client_reference_id`.
+- Returns JSON responses.
+
+#### Legacy payment gateways
+
+- Adyen code/package/config remain present but inactive until business account/API credentials are approved.
+- Mollie code/config remain present, but `POST /api/v1/orders/mollie-webhook` returns HTTP 410 with `{ "message": "Mollie payments are currently disabled." }`.
+- Do not use Adyen or Mollie unless explicitly re-enabled later.
 
 ---
 
@@ -924,7 +962,7 @@ Returns paginated list ordered by `created_at DESC`.
 #### `GET /api/v1/newsletter/confirm/{token}` — Public
 
 Confirms the subscription: sets `is_confirmed = 1`, clears token.
-Redirects to `https://okelcor.de/?newsletter=confirmed`.
+Redirects to `https://okelcor.com/?newsletter=confirmed`.
 
 ---
 
@@ -1143,7 +1181,7 @@ Reject all other types with `422 Unprocessable Entity`.
 
 ## 6. CORS Configuration
 
-The Next.js frontend is on `https://okelcor.de`. The API is on `https://api.okelcor.de`.
+The Next.js frontend is on `https://okelcor.com`. The API is on `https://api.okelcor.de`.
 CORS must be configured to allow cross-origin requests from the frontend origin.
 
 ### `config/cors.php`
@@ -1155,8 +1193,8 @@ return [
     'allowed_methods' => ['*'],
 
     'allowed_origins' => [
-        'https://okelcor.de',
-        'https://www.okelcor.de',
+        'https://okelcor.com',
+        'https://www.okelcor.com',
         // Add Vercel preview URLs during development:
         // 'https://okelcor-git-main-yourteam.vercel.app',
     ],
@@ -1187,8 +1225,8 @@ return [
 
 ```env
 APP_URL=https://api.okelcor.de
-FRONTEND_URL=https://okelcor.de
-SANCTUM_STATEFUL_DOMAINS=okelcor.de,www.okelcor.de
+FRONTEND_URL=https://okelcor.com
+SANCTUM_STATEFUL_DOMAINS=okelcor.com,www.okelcor.com
 ```
 
 ---
@@ -1433,10 +1471,24 @@ QUOTE_EMAIL=quotes@okelcor.de
 ORDER_EMAIL=orders@okelcor.de
 
 # Frontend origin
-FRONTEND_URL=https://okelcor.de
+FRONTEND_URL=https://okelcor.com
+
+# Active payment gateway: Stripe Checkout
+STRIPE_SECRET_KEY=
+STRIPE_WEBHOOK_SECRET=
+STRIPE_CURRENCY=eur
+
+# Legacy/inactive payment gateway: Adyen
+ADYEN_API_KEY=
+ADYEN_MERCHANT_ACCOUNT=
+ADYEN_ENVIRONMENT=test
+ADYEN_CLIENT_KEY=
+
+# Legacy/inactive payment gateway: Mollie
+MOLLIE_WEBHOOK_SECRET=
 
 # Sanctum
-SANCTUM_STATEFUL_DOMAINS=okelcor.de,www.okelcor.de
+SANCTUM_STATEFUL_DOMAINS=okelcor.com,www.okelcor.com
 SANCTUM_TOKEN_EXPIRATION=1440
 
 # Storage

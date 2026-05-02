@@ -28,7 +28,7 @@ class OrderReceived extends Mailable
             view: 'emails.order-received',
             with: [
                 'order'       => $this->order,
-                'trackingUrl' => rtrim(env('FRONTEND_URL', 'https://okelcor.de'), '/')
+                'trackingUrl' => rtrim(env('FRONTEND_URL', 'https://okelcor.com'), '/')
                                  . '/account/orders/' . $this->order->ref,
             ],
         );

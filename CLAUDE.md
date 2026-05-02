@@ -13,7 +13,7 @@ this API. You are building the backend only.
 - This API runs at: `http://localhost:8000`
 - Next.js frontend runs at: `http://localhost:3000`
 - Production API will be: `https://api.okelcor.de`
-- Production frontend will be: `https://okelcor.de`
+- Production frontend will be: `https://okelcor.com`
 
 ## Tech Stack
 - Laravel 11
@@ -64,8 +64,16 @@ The frontend is a consumer only — it never touches the database directly.
 ## CORS
 Allow origins:
 - `http://localhost:3000` (local dev)
-- `https://okelcor.de` (production)
-- `https://www.okelcor.de` (production)
+- `https://okelcor.com` (production)
+- `https://www.okelcor.com` (production)
+
+## Payments
+- Active gateway: Stripe Checkout.
+- Active endpoints: `POST /api/v1/payments/create-session` and `POST /api/v1/payments/webhook`.
+- Stripe webhooks must verify the `Stripe-Signature` header using `STRIPE_WEBHOOK_SECRET`.
+- Adyen code/package/config remain present but are legacy/inactive until business account/API credentials are approved.
+- Mollie code/config remain present, but `POST /api/v1/orders/mollie-webhook` is disabled and returns HTTP 410 JSON.
+- Do not use Adyen or Mollie unless they are explicitly re-enabled later.
 
 ## Code Conventions
 - Use `$fillable` on every model (never `$guarded = []`)

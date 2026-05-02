@@ -30,7 +30,7 @@ class WixCustomerWelcome extends Mailable
             with: [
                 'customer'          => $this->customer,
                 'temporaryPassword' => $this->temporaryPassword,
-                'loginUrl'          => rtrim(config('app.frontend_url', 'https://okelcor.de'), '/') . '/login',
+                'loginUrl'          => rtrim(config('app.frontend_url', 'https://okelcor.com'), '/') . '/login',
             ],
         );
     }

@@ -42,6 +42,12 @@ return [
         'client_key'       => env('ADYEN_CLIENT_KEY'),
     ],
 
+    'stripe' => [
+        'secret'         => env('STRIPE_SECRET_KEY'),
+        'webhook_secret' => env('STRIPE_WEBHOOK_SECRET'),
+        'currency'       => env('STRIPE_CURRENCY', 'eur'),
+    ],
+
     'shipsgo' => [
         'key' => env('SHIPSGO_API_KEY'),
     ],

@@ -15,7 +15,7 @@ return [
 
     'name' => env('APP_NAME', 'Laravel'),
 
-    'frontend_url' => env('FRONTEND_URL', 'https://okelcor.de'),
+    'frontend_url' => env('FRONTEND_URL', 'https://okelcor.com'),
 
     /*
     |--------------------------------------------------------------------------

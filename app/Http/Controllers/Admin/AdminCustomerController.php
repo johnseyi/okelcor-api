@@ -294,7 +294,7 @@ class AdminCustomerController extends Controller
 
         $customer->tokens()->delete();
 
-        $frontendUrl = rtrim(config('app.frontend_url', 'https://okelcor.de'), '/');
+        $frontendUrl = rtrim(config('app.frontend_url', 'https://okelcor.com'), '/');
         $resetUrl    = $frontendUrl . '/reset-password?token=' . $token . '&email=' . urlencode($customer->email);
 
         Mail::to($customer->email)->send(new CustomerPasswordReset($customer, $resetUrl));

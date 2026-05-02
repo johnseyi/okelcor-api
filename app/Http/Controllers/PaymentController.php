@@ -5,31 +5,34 @@ namespace App\Http\Controllers;
 use App\Models\Order;
 use App\Models\OrderItem;
 use App\Models\Product;
-use App\Services\AdyenService;
+use App\Services\StripeService;
 use App\Services\VatValidationService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
+use Stripe\Exception\SignatureVerificationException;
+use Stripe\Webhook;
+use UnexpectedValueException;
 
 class PaymentController extends Controller
 {
     public function __construct(
-        private AdyenService $adyenService,
+        private StripeService $stripeService,
         private VatValidationService $vatService,
     ) {}
 
     /**
      * POST /api/v1/payments/create-session
      *
-     * Saves a pending order, creates an Adyen payment session, and returns the
-     * session data for the frontend Drop-in / Components integration.
+     * Saves a pending order, creates a Stripe Checkout Session, and returns the
+     * hosted checkout URL for the frontend.
      *
      * Request body:
      * {
      *   "delivery": { "name", "email", "address", "city", "postalCode", "country", "phone" },
-     *   "paymentMethod": "adyen",
+     *   "paymentMethod": "stripe",
      *   "vat_number": "DE...",   (optional)
      *   "items": [
      *     { "product": { "id", "brand", "name", "size", "price" }, "quantity": 4 }
@@ -113,7 +116,7 @@ class PaymentController extends Controller
                     'city'           => $delivery['city'],
                     'postal_code'    => $delivery['postalCode'],
                     'country'        => $delivery['country'],
-                    'payment_method' => 'adyen',
+                    'payment_method' => 'stripe',
                     'subtotal'       => $subtotal,
                     'delivery_cost'  => 0.00,
                     'total'          => $subtotal,
@@ -132,19 +135,30 @@ class PaymentController extends Controller
                 return $order;
             });
 
-            $result = $this->adyenService->createPaymentSession(
-                $subtotal, 'eur', $ref, $delivery['email']
-            );
-
-            $order->update(['payment_session_id' => $result['session_id']]);
-
-            Log::info('Adyen session created', [
-                'ref'        => $ref,
-                'session_id' => $result['session_id'],
-                'amount'     => $subtotal,
+            $currency = strtolower((string) config('services.stripe.currency', 'eur'));
+            $result = $this->stripeService->createCheckoutSession([
+                'ref'            => $ref,
+                'customer_email' => $delivery['email'],
+                'currency'       => $currency,
+                'items'          => $lineItems,
             ]);
 
-            return response()->json(['data' => $result], 201);
+            $order->update(['payment_session_id' => $result['checkout_session_id']]);
+
+            Log::info('Stripe checkout session created', [
+                'ref'                 => $ref,
+                'checkout_session_id' => $result['checkout_session_id'],
+                'amount'              => $subtotal,
+            ]);
+
+            return response()->json([
+                'data' => [
+                    'provider'            => 'stripe',
+                    'order_ref'           => $ref,
+                    'checkout_session_id' => $result['checkout_session_id'],
+                    'checkout_url'        => $result['checkout_url'],
+                ],
+            ], 201);
         } catch (\Throwable $e) {
             Log::error('createSession failed', ['error' => $e->getMessage(), 'ref' => $ref]);
 
@@ -157,56 +171,122 @@ class PaymentController extends Controller
     /**
      * POST /api/v1/payments/webhook
      *
-     * Handles Adyen webhook notifications (Standard Notification format).
-     * Adyen expects a "[accepted]" plain-text response on success.
+     * Handles Stripe webhook notifications for Checkout payments.
      */
-    public function webhook(Request $request): \Illuminate\Http\Response|JsonResponse
+    public function webhook(Request $request): JsonResponse
     {
-        $payload = $request->all();
+        $secret = config('services.stripe.webhook_secret');
 
-        if (empty($payload['notificationItems'])) {
+        if (! is_string($secret) || trim($secret) === '') {
+            Log::error('Stripe webhook secret is not configured.');
+
+            return response()->json(['message' => 'Stripe webhook is not configured.'], 500);
+        }
+
+        try {
+            $event = Webhook::constructEvent(
+                $request->getContent(),
+                (string) $request->header('Stripe-Signature'),
+                $secret
+            );
+        } catch (UnexpectedValueException $e) {
             return response()->json(['message' => 'Invalid payload.'], 400);
+        } catch (SignatureVerificationException $e) {
+            return response()->json(['message' => 'Invalid signature.'], 400);
         }
 
-        foreach ($payload['notificationItems'] as $notificationItem) {
-            $item = $notificationItem['NotificationRequestItem'] ?? [];
-            $this->handleNotification($item);
+        $object = $this->stripeObjectToArray($event->data->object ?? []);
+        $order = $this->resolveOrderFromStripeObject($object);
+
+        Log::info('Stripe webhook received', [
+            'event'     => $event->type,
+            'order_ref' => $order?->ref,
+            'object_id' => $object['id'] ?? null,
+        ]);
+
+        if (! $order && in_array($event->type, [
+            'checkout.session.completed',
+            'payment_intent.payment_failed',
+            'charge.refunded',
+        ], true)) {
+            return response()->json(['message' => 'Order not found.'], 404);
         }
 
-        return response('[accepted]', 200)->header('Content-Type', 'text/plain');
-    }
-
-    private function handleNotification(array $item): void
-    {
-        $eventCode = $item['eventCode'] ?? '';
-        $success   = ($item['success'] ?? 'false') === 'true';
-        $ref       = $item['merchantReference'] ?? null;
-        $pspRef    = $item['pspReference'] ?? null;
-
-        if (! $ref) {
-            return;
-        }
-
-        match ($eventCode) {
-            'AUTHORISATION' => $success
-                ? Order::where('ref', $ref)->update([
-                    'payment_status'    => 'paid',
-                    'payment_session_id' => $pspRef,
-                    'status'             => 'processing',
-                ])
-                : Order::where('ref', $ref)->update(['payment_status' => 'failed']),
-            'CANCELLATION', 'CANCEL_OR_REFUND' => Order::where('ref', $ref)->update([
-                'payment_status' => 'refunded',
-            ]),
+        match ($event->type) {
+            'checkout.session.completed' => $this->markOrderPaid($order, $object),
+            'payment_intent.payment_failed' => $this->markOrderFailed($order),
+            'charge.refunded' => $this->markOrderRefunded($order),
             default => null,
         };
 
-        Log::info('Adyen notification', [
-            'event'   => $eventCode,
-            'success' => $success,
-            'ref'     => $ref,
-            'psp'     => $pspRef,
+        return response()->json(['message' => 'Webhook received.']);
+    }
+
+    private function resolveOrderFromStripeObject(array $object): ?Order
+    {
+        $checkoutSessionId = $object['id'] ?? null;
+        if (is_string($checkoutSessionId) && str_starts_with($checkoutSessionId, 'cs_')) {
+            $order = Order::where('payment_session_id', $checkoutSessionId)->first();
+            if ($order) {
+                return $order;
+            }
+        }
+
+        $orderRef = $object['metadata']['order_ref'] ?? $object['client_reference_id'] ?? null;
+        if (is_string($orderRef) && $orderRef !== '') {
+            return Order::where('ref', $orderRef)->first();
+        }
+
+        return null;
+    }
+
+    private function markOrderPaid(?Order $order, array $object): void
+    {
+        if (! $order) {
+            return;
+        }
+
+        $order->update([
+            'payment_status'    => 'paid',
+            'payment_session_id' => $object['id'] ?? $order->payment_session_id,
+            'status'             => 'processing',
         ]);
+    }
+
+    private function markOrderFailed(?Order $order): void
+    {
+        if (! $order) {
+            return;
+        }
+
+        $order->update([
+            'payment_status' => 'failed',
+            'status'         => 'cancelled',
+        ]);
+    }
+
+    private function markOrderRefunded(?Order $order): void
+    {
+        if (! $order) {
+            return;
+        }
+
+        $order->update([
+            'payment_status' => 'refunded',
+        ]);
+    }
+
+    private function stripeObjectToArray(mixed $object): array
+    {
+        if (is_array($object)) {
+            return $object;
+        }
+
+        if (is_object($object) && method_exists($object, 'toArray')) {
+            return $object->toArray();
+        }
+
+        return [];
     }
 
     private function generateRef(): string

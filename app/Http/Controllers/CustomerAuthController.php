@@ -265,7 +265,7 @@ class CustomerAuthController extends Controller
     // -------------------------------------------------------------------------
     public function verifyEmail(Request $request, int $id, string $hash): \Illuminate\Http\RedirectResponse
     {
-        $frontendUrl = rtrim(config('app.frontend_url', 'https://okelcor.de'), '/');
+        $frontendUrl = rtrim(config('app.frontend_url', 'https://okelcor.com'), '/');
 
         if (! $request->hasValidSignature()) {
             return redirect($frontendUrl . '/login?verified=false&error=invalid_link');
@@ -306,7 +306,7 @@ class CustomerAuthController extends Controller
                 ['token', 'created_at']
             );
 
-            $frontendUrl = rtrim(config('app.frontend_url', 'https://okelcor.de'), '/');
+            $frontendUrl = rtrim(config('app.frontend_url', 'https://okelcor.com'), '/');
             $resetUrl    = $frontendUrl . '/reset-password?token=' . $token . '&email=' . urlencode($customer->email);
 
             Mail::to($customer->email)->send(new CustomerPasswordReset($customer, $resetUrl));
@@ -488,7 +488,7 @@ class CustomerAuthController extends Controller
     // -------------------------------------------------------------------------
     private function sendVerificationEmail(Customer $customer): void
     {
-        // APP_URL must be the API URL (https://api.okelcor.de), not the frontend.
+        // APP_URL must be the API URL, not the frontend.
         // forceRootUrl + forceScheme ensure signed links always point to this
         // backend and always use HTTPS even when behind an HTTP-only reverse proxy.
         $apiRoot = rtrim(config('app.url'), '/');

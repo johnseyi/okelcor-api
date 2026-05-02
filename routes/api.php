@@ -128,12 +128,14 @@ Route::prefix('v1')->group(function () {
         Route::post('payments/create-session', [PaymentController::class, 'createSession']);
     });
 
-    // Adyen webhook — no rate limit, excluded from ForceJsonResponse (returns plain [accepted])
+    // Stripe webhook — no rate limit, excluded from ForceJsonResponse
     Route::post('payments/webhook', [PaymentController::class, 'webhook'])
         ->withoutMiddleware([\App\Http\Middleware\ForceJsonResponse::class]);
 
-    // Mollie webhook — no auth, no rate limit
-    Route::post('orders/mollie-webhook', [OrderController::class, 'mollieWebhook']);
+    // Mollie is legacy/inactive until business account/API credentials are approved.
+    Route::post('orders/mollie-webhook', fn () => response()->json([
+        'message' => 'Mollie payments are currently disabled.',
+    ], 410));
 
     // Public forms — rate limited: 10/hour
     Route::middleware('throttle:public-form')->group(function () {

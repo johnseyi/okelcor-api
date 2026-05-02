@@ -32,7 +32,7 @@ class AdyenService
         $sessionRequest->setAmount($amountObj);
         $sessionRequest->setReference($orderRef);
         $sessionRequest->setReturnUrl(
-            rtrim(config('app.frontend_url', 'https://okelcor.de'), '/') . '/checkout/return'
+            rtrim(config('app.frontend_url', 'https://okelcor.com'), '/') . '/checkout/return'
         );
         $sessionRequest->setShopperEmail($customerEmail);
 
