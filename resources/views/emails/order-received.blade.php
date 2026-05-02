@@ -40,7 +40,7 @@
                 </tr>
                 <tr>
                     <td style="padding:12px 16px;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#5c5e62;background-color:#fafafa;border-bottom:1px solid #eeeeee;">Email</td>
-                    <td style="padding:12px 16px;font-family:Arial,Helvetica,sans-serif;font-size:13px;border-bottom:1px solid #eeeeee;"><a href="mailto:{{ $order->customer_email }}" style="color:#f4511e;text-decoration:none;">{{ $order->customer_email }}</a></td>
+                    <td style="padding:12px 16px;font-family:Arial,Helvetica,sans-serif;font-size:13px;border-bottom:1px solid #eeeeee;"><a href="mailto:{{ $order->customer_email }}" style="color:#555555;text-decoration:underline;">{{ $order->customer_email }}</a></td>
                 </tr>
                 @if ($order->customer_phone)
                 <tr>
@@ -65,7 +65,7 @@
             </table>
 
             <!-- Items -->
-            <p style="margin:0 0 12px 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;font-weight:700;color:#171a20;text-transform:uppercase;letter-spacing:0.5px;">Items</p>
+            <p style="margin:0 0 12px 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;font-weight:700;color:#171a20;">Items</p>
             <table width="100%" cellpadding="0" cellspacing="0" border="0" style="border:1px solid #eeeeee;margin-bottom:28px;">
                 <thead>
                     <tr style="background-color:#fafafa;">
@@ -93,26 +93,22 @@
                 <tfoot>
                     <tr>
                         <td colspan="4" style="padding:12px 16px;font-family:Arial,Helvetica,sans-serif;font-size:13px;font-weight:700;color:#171a20;text-align:right;border-top:2px solid #eeeeee;">Total</td>
-                        <td style="padding:12px 16px;font-family:Arial,Helvetica,sans-serif;font-size:14px;font-weight:700;color:#f4511e;text-align:right;border-top:2px solid #eeeeee;">€{{ number_format((float) $order->total, 2) }}</td>
+                        <td style="padding:12px 16px;font-family:Arial,Helvetica,sans-serif;font-size:14px;font-weight:700;color:#171a20;text-align:right;border-top:2px solid #eeeeee;">€{{ number_format((float) $order->total, 2) }}</td>
                     </tr>
                 </tfoot>
             </table>
 
             <!-- CTA -->
-            <table cellpadding="0" cellspacing="0" border="0" style="margin-bottom:32px;">
-                <tr>
-                    <td style="background-color:#171a20;border-radius:3px;">
-                        <a href="{{ $trackingUrl }}" style="display:inline-block;padding:12px 28px;font-family:Arial,Helvetica,sans-serif;font-size:14px;font-weight:700;color:#ffffff;text-decoration:none;">View order in admin</a>
-                    </td>
-                </tr>
-            </table>
+            <p style="margin:0 0 32px 0;font-family:Arial,Helvetica,sans-serif;font-size:14px;">
+                <a href="{{ $trackingUrl }}" style="color:#171a20;text-decoration:underline;">View order in admin: {{ $trackingUrl }}</a>
+            </p>
         </td>
     </tr>
 
     <!-- Footer -->
     <tr>
         <td style="padding:24px 36px;border-top:1px solid #eeeeee;">
-            <p style="margin:0 0 4px 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#5c5e62;">Reply to customer: <a href="mailto:{{ $order->customer_email }}" style="color:#f4511e;text-decoration:none;">{{ $order->customer_email }}</a></p>
+            <p style="margin:0 0 4px 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#5c5e62;">Reply to customer: <a href="mailto:{{ $order->customer_email }}" style="color:#555555;text-decoration:underline;">{{ $order->customer_email }}</a></p>
             <p style="margin:0;font-family:Arial,Helvetica,sans-serif;font-size:12px;color:#9e9e9e;">Okelcor &mdash; {{ date('Y') }} &mdash; Internal notification</p>
         </td>
     </tr>
