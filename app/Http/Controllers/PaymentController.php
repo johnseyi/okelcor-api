@@ -2,6 +2,8 @@
 
 namespace App\Http\Controllers;
 
+use App\Mail\OrderConfirmation;
+use App\Mail\OrderReceived;
 use App\Models\Order;
 use App\Models\OrderItem;
 use App\Models\Product;
@@ -11,6 +13,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Str;
 use Stripe\Exception\SignatureVerificationException;
 use Stripe\Webhook;
@@ -247,11 +250,48 @@ class PaymentController extends Controller
             return;
         }
 
+        // Idempotency guard — Stripe may retry webhooks; skip if already processed
+        if ($order->payment_status === 'paid') {
+            Log::info('Stripe webhook: order already paid, skipping duplicate', ['ref' => $order->ref]);
+            return;
+        }
+
         $order->update([
-            'payment_status'    => 'paid',
+            'payment_status'     => 'paid',
             'payment_session_id' => $object['id'] ?? $order->payment_session_id,
             'status'             => 'processing',
         ]);
+
+        $order->load('items');
+
+        try {
+            Mail::to($order->customer_email)->send(new OrderConfirmation($order));
+            Log::info('Stripe order confirmation email sent', [
+                'ref'            => $order->ref,
+                'customer_email' => $order->customer_email,
+            ]);
+        } catch (\Throwable $e) {
+            Log::error('Stripe order confirmation email failed', [
+                'ref'   => $order->ref,
+                'error' => $e->getMessage(),
+            ]);
+        }
+
+        $adminEmail = env('ORDER_EMAIL');
+        if ($adminEmail) {
+            try {
+                Mail::to($adminEmail)->send(new OrderReceived($order));
+                Log::info('Stripe admin order notification sent', [
+                    'ref'         => $order->ref,
+                    'admin_email' => $adminEmail,
+                ]);
+            } catch (\Throwable $e) {
+                Log::error('Stripe admin order notification email failed', [
+                    'ref'   => $order->ref,
+                    'error' => $e->getMessage(),
+                ]);
+            }
+        }
     }
 
     private function markOrderFailed(?Order $order): void

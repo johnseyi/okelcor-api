@@ -9,7 +9,7 @@
 
     <p style="font-size: 1.1rem; font-weight: bold;">Thank you for your order, {{ $order->customer_name }}!</p>
 
-    <p>We have received your order and our team will be in touch to confirm availability and arrange payment.</p>
+    <p>Your payment has been confirmed. We will be in touch shortly to confirm availability and shipping details.</p>
 
     <table style="width: 100%; border-collapse: collapse; margin: 24px 0;">
         <tr>
