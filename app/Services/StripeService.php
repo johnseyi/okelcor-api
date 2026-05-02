@@ -26,10 +26,17 @@ class StripeService
     {
         $frontendUrl = rtrim(config('app.frontend_url', 'https://okelcor.com'), '/');
 
+        $orderRef = $orderData['ref'] ?? $orderData['order_ref'] ?? null;
+
+        $successUrl = $frontendUrl . '/checkout/return?session_id={CHECKOUT_SESSION_ID}';
+        if ($orderRef) {
+            $successUrl .= '&order_ref=' . urlencode((string) $orderRef);
+        }
+
         $payload = [
             'mode'        => 'payment',
             'line_items'  => $this->lineItems($orderData),
-            'success_url' => $frontendUrl . '/checkout/return?session_id={CHECKOUT_SESSION_ID}' . (isset($orderData['ref']) ? '&order_ref=' . urlencode((string) $orderData['ref']) : ''),
+            'success_url' => $successUrl,
             'cancel_url'  => $frontendUrl . '/checkout/cancel',
         ];
 
@@ -38,7 +45,6 @@ class StripeService
             $payload['customer_email'] = $email;
         }
 
-        $orderRef = $orderData['ref'] ?? $orderData['order_ref'] ?? null;
         if (is_string($orderRef) && $orderRef !== '') {
             $payload['client_reference_id'] = $orderRef;
             $payload['metadata'] = ['order_ref' => $orderRef];
@@ -47,10 +53,9 @@ class StripeService
             ];
         }
 
-        Log::info('[Stripe] Creating checkout session', [
-            'ref'         => $orderData['ref'] ?? $orderData['order_ref'] ?? null,
-            'has_ref'     => isset($orderData['ref']),
-            'success_url' => $payload['success_url'],
+        Log::info('Stripe checkout success_url', [
+            'success_url' => $successUrl,
+            'order_ref'   => $orderRef,
         ]);
 
         $session = $this->stripe->checkout->sessions->create($payload);

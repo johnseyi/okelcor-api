@@ -6,154 +6,118 @@
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <title>New Order — {{ $order->ref }}</title>
 </head>
-<body style="margin:0;padding:0;background-color:#f5f5f5;font-family:Arial,Helvetica,sans-serif;-webkit-text-size-adjust:100%;-ms-text-size-adjust:100%;">
+<body style="margin:0;padding:0;background-color:#f5f5f5;font-family:Arial,Helvetica,sans-serif;">
 
 <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#f5f5f5;">
 <tr><td align="center" style="padding:32px 16px;">
 
-    <!-- Email card -->
-    <table width="600" cellpadding="0" cellspacing="0" border="0" style="max-width:600px;width:100%;background-color:#ffffff;border-radius:4px;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,0.08);">
+<table width="600" cellpadding="0" cellspacing="0" border="0" style="max-width:600px;width:100%;background-color:#ffffff;">
 
-        <!-- Orange accent bar -->
-        <tr>
-            <td style="background-color:#f4511e;height:4px;font-size:0;line-height:0;">&nbsp;</td>
-        </tr>
+    <!-- Top accent line -->
+    <tr>
+        <td style="background-color:#f4511e;height:3px;font-size:0;line-height:0;">&nbsp;</td>
+    </tr>
 
-        <!-- Header -->
-        <tr>
-            <td style="background-color:#171a20;padding:28px 40px;">
-                <table width="100%" cellpadding="0" cellspacing="0" border="0">
+    <!-- Header -->
+    <tr>
+        <td style="padding:28px 36px 20px 36px;border-bottom:1px solid #eeeeee;">
+            <span style="font-family:Arial,Helvetica,sans-serif;font-size:18px;font-weight:700;letter-spacing:2px;color:#171a20;text-transform:uppercase;">OKELCOR</span>
+            <span style="font-family:Arial,Helvetica,sans-serif;font-size:12px;color:#9e9e9e;margin-left:8px;">Admin notification</span>
+        </td>
+    </tr>
+
+    <!-- Body -->
+    <tr>
+        <td style="padding:32px 36px 0 36px;">
+            <p style="margin:0 0 4px 0;font-family:Arial,Helvetica,sans-serif;font-size:18px;font-weight:700;color:#171a20;">New order received</p>
+            <p style="margin:0 0 24px 0;font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#5c5e62;">{{ $order->ref }} &mdash; {{ $order->created_at?->format('d M Y, H:i') }} UTC</p>
+
+            <!-- Customer + address -->
+            <table width="100%" cellpadding="0" cellspacing="0" border="0" style="border:1px solid #eeeeee;margin-bottom:28px;">
                 <tr>
-                    <td>
-                        <span style="font-family:Arial,Helvetica,sans-serif;font-size:22px;font-weight:700;letter-spacing:3px;color:#ffffff;text-transform:uppercase;">OKELCOR</span>
-                        <span style="font-family:Arial,Helvetica,sans-serif;font-size:12px;color:#9e9e9e;margin-left:10px;letter-spacing:0.5px;">Admin</span>
-                    </td>
-                    <td align="right">
-                        <span style="display:inline-block;background-color:#f4511e;color:#ffffff;font-family:Arial,Helvetica,sans-serif;font-size:11px;font-weight:700;letter-spacing:1px;text-transform:uppercase;padding:5px 12px;border-radius:2px;">New Order</span>
-                    </td>
+                    <td style="padding:12px 16px;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#5c5e62;width:40%;background-color:#fafafa;border-bottom:1px solid #eeeeee;">Customer</td>
+                    <td style="padding:12px 16px;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#171a20;font-weight:700;border-bottom:1px solid #eeeeee;">{{ $order->customer_name }}</td>
                 </tr>
-                </table>
-            </td>
-        </tr>
-
-        <!-- Headline -->
-        <tr>
-            <td style="padding:32px 40px 8px 40px;">
-                <p style="margin:0 0 4px 0;font-family:Arial,Helvetica,sans-serif;font-size:20px;font-weight:700;color:#171a20;line-height:1.3;">Order {{ $order->ref }}</p>
-                <p style="margin:0;font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#5c5e62;">Placed {{ $order->created_at?->format('d M Y, H:i') }} UTC &mdash; Payment method: {{ $order->payment_method ?? '—' }}</p>
-            </td>
-        </tr>
-
-        <!-- Customer details strip -->
-        <tr>
-            <td style="padding:20px 40px;">
-                <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#f5f5f5;border-radius:4px;">
                 <tr>
-                    <td style="padding:16px 20px;width:50%;vertical-align:top;">
-                        <p style="margin:0 0 4px 0;font-family:Arial,Helvetica,sans-serif;font-size:11px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:#5c5e62;">Customer</p>
-                        <p style="margin:0;font-family:Arial,Helvetica,sans-serif;font-size:14px;font-weight:700;color:#171a20;">{{ $order->customer_name }}</p>
-                        <p style="margin:2px 0 0 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#5c5e62;">
-                            <a href="mailto:{{ $order->customer_email }}" style="color:#f4511e;text-decoration:none;">{{ $order->customer_email }}</a>
-                        </p>
-                        @if ($order->customer_phone)
-                        <p style="margin:2px 0 0 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#5c5e62;">{{ $order->customer_phone }}</p>
-                        @endif
-                    </td>
-                    <td style="padding:16px 20px;width:50%;vertical-align:top;border-left:1px solid #e0e0e0;">
-                        <p style="margin:0 0 4px 0;font-family:Arial,Helvetica,sans-serif;font-size:11px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:#5c5e62;">Ship to</p>
-                        <p style="margin:0;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#171a20;line-height:1.6;">
-                            {{ $order->address }}<br>
-                            {{ implode(', ', array_filter([$order->city, $order->postal_code])) }}<br>
-                            {{ $order->country }}
-                        </p>
-                    </td>
+                    <td style="padding:12px 16px;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#5c5e62;background-color:#fafafa;border-bottom:1px solid #eeeeee;">Email</td>
+                    <td style="padding:12px 16px;font-family:Arial,Helvetica,sans-serif;font-size:13px;border-bottom:1px solid #eeeeee;"><a href="mailto:{{ $order->customer_email }}" style="color:#f4511e;text-decoration:none;">{{ $order->customer_email }}</a></td>
+                </tr>
+                @if ($order->customer_phone)
+                <tr>
+                    <td style="padding:12px 16px;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#5c5e62;background-color:#fafafa;border-bottom:1px solid #eeeeee;">Phone</td>
+                    <td style="padding:12px 16px;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#171a20;border-bottom:1px solid #eeeeee;">{{ $order->customer_phone }}</td>
+                </tr>
+                @endif
+                <tr>
+                    <td style="padding:12px 16px;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#5c5e62;background-color:#fafafa;border-bottom:1px solid #eeeeee;">Address</td>
+                    <td style="padding:12px 16px;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#171a20;border-bottom:1px solid #eeeeee;">{{ implode(', ', array_filter([$order->address, $order->city, $order->postal_code, $order->country])) }}</td>
                 </tr>
                 @if ($order->vat_number)
                 <tr>
-                    <td colspan="2" style="padding:0 20px 14px 20px;border-top:1px solid #e0e0e0;">
-                        <p style="margin:14px 0 0 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#5c5e62;">VAT: <strong style="color:#171a20;">{{ $order->vat_number }}</strong> &mdash; {{ $order->vat_valid ? 'Valid (VIES)' : 'Not validated' }}</p>
-                    </td>
+                    <td style="padding:12px 16px;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#5c5e62;background-color:#fafafa;border-bottom:1px solid #eeeeee;">VAT</td>
+                    <td style="padding:12px 16px;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#171a20;border-bottom:1px solid #eeeeee;">{{ $order->vat_number }} ({{ $order->vat_valid ? 'valid' : 'not validated' }})</td>
                 </tr>
                 @endif
-                </table>
-            </td>
-        </tr>
+                <tr>
+                    <td style="padding:12px 16px;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#5c5e62;background-color:#fafafa;">Payment</td>
+                    <td style="padding:12px 16px;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#171a20;">{{ $order->payment_method ?? '—' }}</td>
+                </tr>
+            </table>
 
-        <!-- Items heading -->
-        <tr>
-            <td style="padding:0 40px 12px 40px;">
-                <p style="margin:0;font-family:Arial,Helvetica,sans-serif;font-size:13px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:#5c5e62;">Items</p>
-            </td>
-        </tr>
+            <!-- Items -->
+            <p style="margin:0 0 12px 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;font-weight:700;color:#171a20;text-transform:uppercase;letter-spacing:0.5px;">Items</p>
+            <table width="100%" cellpadding="0" cellspacing="0" border="0" style="border:1px solid #eeeeee;margin-bottom:28px;">
+                <thead>
+                    <tr style="background-color:#fafafa;">
+                        <th style="padding:10px 16px;font-family:Arial,Helvetica,sans-serif;font-size:12px;font-weight:700;color:#5c5e62;text-align:left;border-bottom:1px solid #eeeeee;">Product</th>
+                        <th style="padding:10px 16px;font-family:Arial,Helvetica,sans-serif;font-size:12px;font-weight:700;color:#5c5e62;text-align:left;width:80px;border-bottom:1px solid #eeeeee;">SKU</th>
+                        <th style="padding:10px 16px;font-family:Arial,Helvetica,sans-serif;font-size:12px;font-weight:700;color:#5c5e62;text-align:center;width:40px;border-bottom:1px solid #eeeeee;">Qty</th>
+                        <th style="padding:10px 16px;font-family:Arial,Helvetica,sans-serif;font-size:12px;font-weight:700;color:#5c5e62;text-align:right;width:80px;border-bottom:1px solid #eeeeee;">Unit</th>
+                        <th style="padding:10px 16px;font-family:Arial,Helvetica,sans-serif;font-size:12px;font-weight:700;color:#5c5e62;text-align:right;width:90px;border-bottom:1px solid #eeeeee;">Amount</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach ($order->items as $item)
+                    <tr>
+                        <td style="padding:10px 16px;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#171a20;border-bottom:1px solid #eeeeee;vertical-align:top;">
+                            {{ $item->name }}@if ($item->brand)<span style="color:#5c5e62;"> &middot; {{ $item->brand }}</span>@endif
+                            @if ($item->size)<br><span style="font-size:12px;color:#5c5e62;">{{ $item->size }}</span>@endif
+                        </td>
+                        <td style="padding:10px 16px;font-family:Arial,Helvetica,sans-serif;font-size:12px;color:#5c5e62;border-bottom:1px solid #eeeeee;vertical-align:top;">{{ $item->sku ?? '—' }}</td>
+                        <td style="padding:10px 16px;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#171a20;text-align:center;border-bottom:1px solid #eeeeee;vertical-align:top;">{{ $item->quantity }}</td>
+                        <td style="padding:10px 16px;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#171a20;text-align:right;border-bottom:1px solid #eeeeee;vertical-align:top;">€{{ number_format((float) $item->unit_price, 2) }}</td>
+                        <td style="padding:10px 16px;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#171a20;text-align:right;border-bottom:1px solid #eeeeee;vertical-align:top;">€{{ number_format((float) $item->line_total, 2) }}</td>
+                    </tr>
+                    @endforeach
+                </tbody>
+                <tfoot>
+                    <tr>
+                        <td colspan="4" style="padding:12px 16px;font-family:Arial,Helvetica,sans-serif;font-size:13px;font-weight:700;color:#171a20;text-align:right;border-top:2px solid #eeeeee;">Total</td>
+                        <td style="padding:12px 16px;font-family:Arial,Helvetica,sans-serif;font-size:14px;font-weight:700;color:#f4511e;text-align:right;border-top:2px solid #eeeeee;">€{{ number_format((float) $order->total, 2) }}</td>
+                    </tr>
+                </tfoot>
+            </table>
 
-        <!-- Items table -->
-        <tr>
-            <td style="padding:0 40px;">
-                <table width="100%" cellpadding="0" cellspacing="0" border="0">
-                    <thead>
-                        <tr style="background-color:#f5f5f5;">
-                            <th style="padding:10px 12px;font-family:Arial,Helvetica,sans-serif;font-size:11px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:#5c5e62;text-align:left;">Product</th>
-                            <th style="padding:10px 12px;font-family:Arial,Helvetica,sans-serif;font-size:11px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:#5c5e62;text-align:left;width:80px;">SKU</th>
-                            <th style="padding:10px 12px;font-family:Arial,Helvetica,sans-serif;font-size:11px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:#5c5e62;text-align:center;width:40px;">Qty</th>
-                            <th style="padding:10px 12px;font-family:Arial,Helvetica,sans-serif;font-size:11px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:#5c5e62;text-align:right;width:80px;">Unit</th>
-                            <th style="padding:10px 12px;font-family:Arial,Helvetica,sans-serif;font-size:11px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:#5c5e62;text-align:right;width:90px;">Subtotal</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        @foreach ($order->items as $item)
-                        <tr style="border-bottom:1px solid #f0f0f0;">
-                            <td style="padding:12px 12px;font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#171a20;vertical-align:top;">
-                                {{ $item->name }}
-                                @if ($item->brand)
-                                <span style="color:#5c5e62;"> &middot; {{ $item->brand }}</span>
-                                @endif
-                                @if ($item->size)
-                                <br><span style="font-size:12px;color:#5c5e62;">{{ $item->size }}</span>
-                                @endif
-                            </td>
-                            <td style="padding:12px 12px;font-family:Arial,Helvetica,sans-serif;font-size:12px;color:#5c5e62;vertical-align:top;">{{ $item->sku ?? '—' }}</td>
-                            <td style="padding:12px 12px;font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#171a20;text-align:center;vertical-align:top;">{{ $item->quantity }}</td>
-                            <td style="padding:12px 12px;font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#171a20;text-align:right;vertical-align:top;">€{{ number_format((float) $item->unit_price, 2) }}</td>
-                            <td style="padding:12px 12px;font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#171a20;text-align:right;vertical-align:top;">€{{ number_format((float) $item->line_total, 2) }}</td>
-                        </tr>
-                        @endforeach
-                    </tbody>
-                    <tfoot>
-                        <tr style="background-color:#171a20;">
-                            <td colspan="4" style="padding:14px 12px;font-family:Arial,Helvetica,sans-serif;font-size:13px;font-weight:700;color:#ffffff;text-align:right;letter-spacing:0.5px;">Order Total</td>
-                            <td style="padding:14px 12px;font-family:Arial,Helvetica,sans-serif;font-size:16px;font-weight:700;color:#f4511e;text-align:right;">€{{ number_format((float) $order->total, 2) }}</td>
-                        </tr>
-                    </tfoot>
-                </table>
-            </td>
-        </tr>
+            <!-- CTA -->
+            <table cellpadding="0" cellspacing="0" border="0" style="margin-bottom:32px;">
+                <tr>
+                    <td style="background-color:#171a20;border-radius:3px;">
+                        <a href="{{ $trackingUrl }}" style="display:inline-block;padding:12px 28px;font-family:Arial,Helvetica,sans-serif;font-size:14px;font-weight:700;color:#ffffff;text-decoration:none;">View order in admin</a>
+                    </td>
+                </tr>
+            </table>
+        </td>
+    </tr>
 
-        <!-- CTA -->
-        <tr>
-            <td align="center" style="padding:36px 40px;">
-                <a href="{{ $trackingUrl }}" style="display:inline-block;background-color:#171a20;color:#ffffff;font-family:Arial,Helvetica,sans-serif;font-size:14px;font-weight:700;text-decoration:none;padding:14px 36px;border-radius:3px;letter-spacing:0.5px;">View Order in Admin &rarr;</a>
-            </td>
-        </tr>
+    <!-- Footer -->
+    <tr>
+        <td style="padding:24px 36px;border-top:1px solid #eeeeee;">
+            <p style="margin:0 0 4px 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#5c5e62;">Reply to customer: <a href="mailto:{{ $order->customer_email }}" style="color:#f4511e;text-decoration:none;">{{ $order->customer_email }}</a></p>
+            <p style="margin:0;font-family:Arial,Helvetica,sans-serif;font-size:12px;color:#9e9e9e;">Okelcor &mdash; {{ date('Y') }} &mdash; Internal notification</p>
+        </td>
+    </tr>
 
-        <!-- Divider -->
-        <tr>
-            <td style="padding:0 40px;">
-                <table width="100%" cellpadding="0" cellspacing="0" border="0">
-                <tr><td style="border-top:1px solid #f0f0f0;font-size:0;line-height:0;">&nbsp;</td></tr>
-                </table>
-            </td>
-        </tr>
-
-        <!-- Footer -->
-        <tr>
-            <td style="padding:24px 40px 32px 40px;">
-                <p style="margin:0 0 6px 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#5c5e62;line-height:1.6;">Reply to customer: <a href="mailto:{{ $order->customer_email }}" style="color:#f4511e;text-decoration:none;font-weight:600;">{{ $order->customer_email }}</a></p>
-                <p style="margin:0;font-family:Arial,Helvetica,sans-serif;font-size:12px;color:#9e9e9e;">© {{ date('Y') }} Okelcor. This is an internal admin notification.</p>
-            </td>
-        </tr>
-
-    </table>
-    <!-- /Email card -->
+</table>
 
 </td></tr>
 </table>

@@ -142,6 +142,7 @@ class PaymentController extends Controller
             $currency = strtolower((string) config('services.stripe.currency', 'eur'));
             $result = $this->stripeService->createCheckoutSession([
                 'ref'            => $ref,
+                'order_ref'      => $ref,
                 'customer_email' => $delivery['email'],
                 'currency'       => $currency,
                 'items'          => $lineItems,
