@@ -88,9 +88,22 @@ class AdminOrderController extends Controller
         ]);
     }
 
-    public function destroy(int $id): JsonResponse
+    public function destroy(Request $request, int $id): JsonResponse
     {
         $order = Order::findOrFail($id);
+
+        if ((string) $request->input('confirm_ref') !== (string) $order->ref) {
+            return response()->json([
+                'message' => 'Order reference confirmation does not match.',
+            ], 422);
+        }
+
+        if ($order->payment_status === 'paid') {
+            return response()->json([
+                'message' => 'Cannot delete a paid order. Change payment status first.',
+            ], 409);
+        }
+
         $order->items()->delete();
         $order->delete();
 

@@ -292,7 +292,7 @@ Route::prefix('v1')->group(function () {
             Route::get('orders/{id}', [AdminOrderController::class, 'show']);
             Route::put('orders/{id}', [AdminOrderController::class, 'update']);
             Route::patch('orders/{id}/status', [AdminOrderController::class, 'updateStatus']);
-            Route::middleware('admin.role:super_admin,admin')->group(function () {
+            Route::middleware('admin.role:super_admin')->group(function () {
                 Route::delete('orders/{id}', [AdminOrderController::class, 'destroy']);
             });
 
