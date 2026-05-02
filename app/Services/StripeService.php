@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use Illuminate\Support\Facades\Log;
 use InvalidArgumentException;
 use RuntimeException;
 use Stripe\StripeClient;
@@ -45,6 +46,12 @@ class StripeService
                 'metadata' => ['order_ref' => $orderRef],
             ];
         }
+
+        Log::info('[Stripe] Creating checkout session', [
+            'ref'         => $orderData['ref'] ?? $orderData['order_ref'] ?? null,
+            'has_ref'     => isset($orderData['ref']),
+            'success_url' => $payload['success_url'],
+        ]);
 
         $session = $this->stripe->checkout->sessions->create($payload);
 
