@@ -5,8 +5,10 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Models\Customer;
 use App\Models\Order;
+use App\Models\OrderLog;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\Rule;
 
 class AdminOrderController extends Controller
@@ -58,7 +60,7 @@ class AdminOrderController extends Controller
 
     public function show(int $id): JsonResponse
     {
-        $order = Order::with('items')->findOrFail($id);
+        $order = Order::with(['items', 'logs'])->findOrFail($id);
 
         return response()->json([
             'data'    => $this->formatOrderDetail($order),
@@ -78,7 +80,8 @@ class AdminOrderController extends Controller
             'admin_notes'        => ['sometimes', 'nullable', 'string'],
         ]);
 
-        $order = Order::findOrFail($id);
+        $order          = Order::findOrFail($id);
+        $previousStatus = $order->status;
 
         if ($request->input('status') === 'cancelled' && in_array($order->status, ['cancelled', 'delivered'], true)) {
             return response()->json([
@@ -87,7 +90,10 @@ class AdminOrderController extends Controller
         }
 
         $order->update($request->only(['status', 'carrier', 'tracking_number', 'container_number', 'estimated_delivery', 'eta', 'admin_notes']));
-        $order->load('items');
+        $order->load(['items', 'logs']);
+
+        $this->logStatusChange($request, $order, $previousStatus);
+        $this->logTrackingChange($request, $order);
 
         return response()->json([
             'data'    => $this->formatOrderDetail($order),
@@ -110,6 +116,9 @@ class AdminOrderController extends Controller
                 'message' => 'Cannot delete a paid order. Change payment status first.',
             ], 409);
         }
+
+        // Log before deletion — order record still exists, FK will nullify after delete.
+        $this->writeLog($request, $order, 'deleted', ['old_value' => $order->status]);
 
         $order->items()->delete();
         $order->delete();
@@ -134,7 +143,8 @@ class AdminOrderController extends Controller
             'eta'                => ['sometimes', 'nullable', 'date'],
         ]);
 
-        $order = Order::findOrFail($id);
+        $order          = Order::findOrFail($id);
+        $previousStatus = $order->status;
 
         if ($request->input('status') === 'cancelled' && in_array($order->status, ['cancelled', 'delivered'], true)) {
             return response()->json([
@@ -143,6 +153,9 @@ class AdminOrderController extends Controller
         }
 
         $order->update($request->only(['status', 'carrier', 'tracking_number', 'container_number', 'estimated_delivery', 'eta']));
+
+        $this->logStatusChange($request, $order, $previousStatus);
+        $this->logTrackingChange($request, $order);
 
         return response()->json([
             'data'    => [
@@ -159,6 +172,64 @@ class AdminOrderController extends Controller
             'message' => 'Status updated successfully.',
         ]);
     }
+
+    // -------------------------------------------------------------------------
+    // Logging helpers
+    // -------------------------------------------------------------------------
+
+    private function logStatusChange(Request $request, Order $order, string $previousStatus): void
+    {
+        if (! $order->wasChanged('status')) {
+            return;
+        }
+
+        $action = $order->status === 'cancelled' ? 'cancelled' : 'status_changed';
+
+        $this->writeLog($request, $order, $action, [
+            'old_value' => $previousStatus,
+            'new_value' => $order->status,
+        ]);
+    }
+
+    private function logTrackingChange(Request $request, Order $order): void
+    {
+        if (! $order->wasChanged(['carrier', 'tracking_number', 'container_number', 'estimated_delivery', 'eta'])) {
+            return;
+        }
+
+        $this->writeLog($request, $order, 'tracking_updated', [
+            'notes' => 'Tracking fields updated.',
+        ]);
+    }
+
+    private function writeLog(Request $request, Order $order, string $action, array $extra = []): void
+    {
+        try {
+            $admin = $request->user();
+
+            OrderLog::create([
+                'order_id'         => $order->id,
+                'order_ref'        => $order->ref,
+                'admin_user_id'    => $admin?->id,
+                'admin_user_email' => $admin?->email,
+                'action'           => $action,
+                'old_value'        => $extra['old_value'] ?? null,
+                'new_value'        => $extra['new_value'] ?? null,
+                'notes'            => $extra['notes'] ?? null,
+                'ip_address'       => $request->ip(),
+            ]);
+        } catch (\Throwable $e) {
+            Log::warning('OrderLog write failed', [
+                'order_ref' => $order->ref,
+                'action'    => $action,
+                'error'     => $e->getMessage(),
+            ]);
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Formatters
+    // -------------------------------------------------------------------------
 
     private function formatOrderList(Order $o): array
     {
@@ -178,17 +249,17 @@ class AdminOrderController extends Controller
     private function formatOrderDetail(Order $o): array
     {
         return [
-            'id'             => $o->id,
-            'order_ref'      => $o->ref,
-            'customer_name'  => $o->customer_name,
-            'customer_email' => $o->customer_email,
-            'phone'          => $o->customer_phone,
-            'company_name'   => null,
-            'address'        => trim(implode(', ', array_filter([$o->address, $o->city, $o->postal_code]))),
-            'country'        => $o->country,
-            'total'          => (float) $o->total,
-            'status'         => $o->status,
-            'payment_method' => $o->payment_method,
+            'id'                 => $o->id,
+            'order_ref'          => $o->ref,
+            'customer_name'      => $o->customer_name,
+            'customer_email'     => $o->customer_email,
+            'phone'              => $o->customer_phone,
+            'company_name'       => null,
+            'address'            => trim(implode(', ', array_filter([$o->address, $o->city, $o->postal_code]))),
+            'country'            => $o->country,
+            'total'              => (float) $o->total,
+            'status'             => $o->status,
+            'payment_method'     => $o->payment_method,
             'notes'              => $o->admin_notes,
             'carrier'            => $o->carrier,
             'tracking_number'    => $o->tracking_number,
@@ -200,7 +271,7 @@ class AdminOrderController extends Controller
             'payment_session_id' => $o->payment_session_id,
             'created_at'         => $o->created_at?->toIso8601String(),
             'updated_at'         => $o->updated_at?->toIso8601String(),
-            'items'          => $o->items->map(fn ($i) => [
+            'items'              => $o->items->map(fn ($i) => [
                 'id'           => $i->id,
                 'product_id'   => $i->product_id,
                 'product_name' => $i->name,
@@ -211,6 +282,18 @@ class AdminOrderController extends Controller
                 'unit_price'   => (float) $i->unit_price,
                 'subtotal'     => (float) $i->line_total,
             ])->values(),
+            'logs'               => $o->relationLoaded('logs')
+                ? $o->logs->map(fn ($l) => [
+                    'id'               => $l->id,
+                    'action'           => $l->action,
+                    'old_value'        => $l->old_value,
+                    'new_value'        => $l->new_value,
+                    'notes'            => $l->notes,
+                    'admin_user_email' => $l->admin_user_email,
+                    'ip_address'       => $l->ip_address,
+                    'created_at'       => $l->created_at?->toIso8601String(),
+                ])->values()
+                : [],
         ];
     }
 }
