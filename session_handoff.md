@@ -1,8 +1,4 @@
 # Session Handoff — Okelcor API
-Last updated: 2026-04-20
-
-## Project
-# Session Handoff — Okelcor API
 Last updated: 2026-05-02
 
 ## Project
@@ -20,12 +16,11 @@ Laravel 13.2 / PHP 8.3 REST API for Okelcor B2B tyre wholesale.
 Important:
 - `okelcor.com` is the canonical frontend domain.
 - `api.okelcor.com` is the canonical API domain.
-- Old `.de` references should be treated as legacy unless explicitly confirmed otherwise.
+- Old `.de` references are legacy — do not use.
 
 ---
 
-## namecheap Deploy Command (run after every git pull)
-## namecheap Deploy Command
+## Namecheap Deploy Command
 
 Run after every backend deployment:
 
@@ -38,6 +33,7 @@ composer install --no-dev
 /opt/alt/php83/usr/bin/php artisan config:clear
 /opt/alt/php83/usr/bin/php artisan config:cache
 /opt/alt/php83/usr/bin/php artisan route:cache
+```
 
 ---
 
@@ -99,7 +95,7 @@ Status mapping (internal → customer-facing):
       "due_at": "2024-04-30T00:00:00+00:00",
       "amount": 4850.00,
       "status": "paid",
-      "pdf_url": "https://api.okelcor.de/storage/invoices/INV-2024-0042.pdf",
+      "pdf_url": "https://api.okelcor.com/storage/invoices/INV-2024-0042.pdf",
       "order_ref": "OKL-AB123"
     }
   ]
@@ -261,10 +257,10 @@ GET    /admin/supplier/alibaba-link?q={query}
       "first_name": "John",
       "last_name": "Doe",
       "display_name": "John",
-      "email": "john@okelcor.de",
+      "email": "john@okelcor.com",
       "role": "super_admin",
       "role_label": "Super Admin",
-      "last_login_at": "2026-04-20T10:00:00+00:00",
+      "last_login_at": "2026-05-02T10:00:00+00:00",
       "must_change_password": false
     }
   }
@@ -294,7 +290,7 @@ Frontend must update its auth store from this response to clear the "change pass
 - No password field in request — backend generates a 16-char secure temp password
 - Sets `must_change_password = true`
 - Sends `AdminWelcome` email to new user with temp password + login URL
-- Login URL comes from `FRONTEND_URL` env var — **currently set to `https://okelcor-website.vercel.app` on Hostinger; update to `https://okelcor.com` when domain goes live**
+- Login URL comes from `FRONTEND_URL` env var
 - Plain text password is never stored or returned after the email is sent
 
 ---
@@ -351,8 +347,8 @@ php artisan import:product-images {file}
 ### IMPORTANT — Upload directly to Laravel API (bypass Vercel)
 Vercel has a hard 4.5 MB body size limit. Large CSV files must be uploaded directly to:
 ```
-POST https://api.okelcor.de/api/v1/admin/products/import
-POST https://api.okelcor.de/api/v1/admin/orders/import
+POST https://api.okelcor.com/api/v1/admin/products/import
+POST https://api.okelcor.com/api/v1/admin/orders/import
 ```
 NOT through the Vercel proxy.
 
@@ -589,12 +585,34 @@ Locales ENUM: `en`, `de`, `fr`, `es`
 
 **Flow:**
 1. Frontend sends cart to `POST /api/v1/payments/create-session`.
-2. Backend validates, looks up DB prices, saves a `pending` order with `mode=live` and `payment_method=stripe`.
-3. Backend calls Stripe Checkout Session API and stores the Checkout Session ID in `orders.payment_session_id`.
-4. Returns `{ "data": { "provider": "stripe", "order_ref": "...", "checkout_session_id": "...", "checkout_url": "https://checkout.stripe.com/..." } }`.
-5. Stripe sends webhook events to `POST /api/v1/payments/webhook`.
-6. Backend verifies the `Stripe-Signature` header using `STRIPE_WEBHOOK_SECRET`.
-7. Handled events: `checkout.session.completed` → `payment_status=paid`, `status=processing`; `payment_intent.payment_failed` → `payment_status=failed`, `status=cancelled`; `charge.refunded` → `payment_status=refunded`.
+2. `payment_method` field is **optional** in the request — defaults to `stripe` server-side. If provided, only `"stripe"` is accepted.
+3. Backend validates, looks up DB prices, saves a `pending` order with `mode=live` and `payment_method=stripe`.
+4. Backend calls Stripe Checkout Session API and stores the Checkout Session ID in `orders.payment_session_id`.
+5. Returns `{ "data": { "provider": "stripe", "order_ref": "...", "checkout_session_id": "...", "checkout_url": "https://checkout.stripe.com/..." } }`.
+6. Frontend redirects customer to `checkout_url`.
+7. Stripe redirects customer to: `{FRONTEND_URL}/checkout/return?session_id={cs_xxx}&order_ref={OKL-xxx}`
+8. Stripe sends webhook to `POST /api/v1/payments/webhook`.
+9. Backend verifies `Stripe-Signature` header using `STRIPE_WEBHOOK_SECRET`.
+10. Handled events:
+    - `checkout.session.completed` → `payment_status=paid`, `status=confirmed`, sends `OrderConfirmation` to customer + `OrderReceived` to `ORDER_EMAIL`
+    - `payment_intent.payment_failed` → `payment_status=failed`, `status=cancelled`
+    - `charge.refunded` → `payment_status=refunded`
+
+**Order status flow (Stripe path):**
+```
+pending → confirmed (Stripe webhook) → processing (admin sets manually) → shipped → delivered
+```
+
+**Webhook idempotency:**
+- If `payment_status` is already `paid` when webhook fires, the handler skips DB update and email sending (Stripe retry protection).
+
+**Debug log:**
+- `StripeService` logs `Stripe checkout success_url` with `success_url` and `order_ref` immediately before calling the Stripe API. Grep: `tail -n 50 storage/logs/laravel.log | grep "Stripe checkout success_url"`
+
+**Frontend return pages required:**
+- `/checkout/return?session_id=...&order_ref=OKL-...` — success page, show order ref, tell customer to check email
+- `/checkout/cancel` — payment cancelled page
+- Note: webhook may fire slightly after the customer lands on `/checkout/return`. Do not rely on `payment_status=paid` being set immediately on page load.
 
 **Legacy gateways:**
 - Adyen code/package/config remain present but inactive until business account/API credentials are approved.
@@ -602,12 +620,15 @@ Locales ENUM: `en`, `de`, `fr`, `es`
 - Do not use Adyen or Mollie unless explicitly re-enabled later.
 
 ### Order Confirmation Emails
-- `OrderConfirmation` mailable → sent to customer on `POST /api/v1/orders`
-- `OrderReceived` mailable → sent to `ORDER_EMAIL` env var on `POST /api/v1/orders`
+- `OrderConfirmation` mailable → sent to customer **after Stripe webhook confirms payment** (`checkout.session.completed`)
+- `OrderReceived` mailable → sent to `ORDER_EMAIL` env var **after Stripe webhook confirms payment**
+- Manual order flow (`POST /api/v1/orders`) sends `OrderReceived` to admin only — no customer email on manual orders
 - Both views: `resources/views/emails/order-confirmation.blade.php` and `order-received.blade.php`
+- Templates are plain transactional HTML — white background, minimal color (3px orange top border only), no image assets
+- Contact email in templates: `support@okelcor.com`
 - Shipment fields (carrier, tracking_number, container_number, ETA) shown conditionally when set
 - Tracking URL: `{FRONTEND_URL}/account/orders/{ref}`
-- Env var required: `ORDER_EMAIL=orders@okelcor.de`
+- Env var required: `ORDER_EMAIL=support@okelcor.com`
 
 ### Container Tracking (Public)
 - `GET /api/v1/tracking/{container}` — auto-detects carrier by tracking number format
@@ -750,7 +771,8 @@ Conversion: `url(Storage::url($relativePath))` in controller formatters.
 | `import:product-images {file}` | Download missing images for already-imported products |
 | `import:wix-orders {file}` | Import orders from Wix CSV |
 | `import:wix-customers {file}` | Import customers from Wix contacts CSV |
-| `import:wix-customers {file} --no-email` | Import customers without sending welcome emails (dry-run safe) |
+| `import:wix-customers {file} --no-email` | Import customers without sending welcome emails |
+| `orders:cleanup-test-stripe --date=YYYY-MM-DD --email=EMAIL --dry-run` | Delete test Stripe orders by date + email (always dry-run first) |
 
 ---
 
@@ -758,11 +780,11 @@ Conversion: `url(Storage::url($relativePath))` in controller formatters.
 
 | Item | Notes |
 |------|-------|
-| eBay production credentials | Live keys set in Hostinger .env — `EBAY_ENVIRONMENT=production` |
+| eBay production credentials | Live keys set in Namecheap .env — `EBAY_ENVIRONMENT=production` |
 | Adyen approval | Legacy/inactive until business account/API credentials are approved |
 | `GET /admin/products?trashed=only` | Restore works but no dedicated trashed product list endpoint |
 | Admin customer edit/deactivate | GET /admin/customers list exists; no PUT/DELETE per customer yet |
-| Invoice population | `invoices` table and API exist; no admin UI or import flow yet to create invoice records |
+| Invoice PDF generation | `invoices` table and API exist; no PDF generation, admin UI, or import flow yet |
 
 ---
 
@@ -773,12 +795,11 @@ PHP:     8.3.30
 Laravel: 13.2.0
 MySQL:   8.0
 DB:      okelcor_cms
-Host:    127.0.0.1:3306
-User:    root (no password, local) / Hostinger DB credentials (production)
+Host:    127.0.0.1:3306 (local) / Namecheap DB credentials (production)
 Web server: Apache
 ```
 
-## Required `.env` on Hostinger
+## Required `.env` on Namecheap
 ```env
 # Stripe Checkout (active)
 STRIPE_SECRET_KEY=
@@ -794,8 +815,8 @@ ADYEN_CLIENT_KEY=
 # Mollie (legacy/inactive; public webhook returns HTTP 410)
 MOLLIE_WEBHOOK_SECRET=
 
-# Order notifications
-ORDER_EMAIL=orders@okelcor.de
+# Order notifications — admin receives email here after every confirmed Stripe payment
+ORDER_EMAIL=support@okelcor.com
 
 # ShipsGo container tracking
 SHIPSGO_API_KEY=
@@ -808,8 +829,6 @@ EBAY_CLIENT_ID=
 EBAY_CLIENT_SECRET=
 EBAY_ENVIRONMENT=production
 
-# Frontend URL — used in ALL email links and redirects (verify email, password reset, admin welcome)
-# Currently: https://okelcor-website.vercel.app
-# Change to https://okelcor.com when domain goes live, then run: php artisan config:cache
-FRONTEND_URL=https://okelcor-website.vercel.app
+# Frontend URL — used in ALL email links and redirects (verify email, password reset, admin welcome, order tracking)
+FRONTEND_URL=https://okelcor.com
 ```
