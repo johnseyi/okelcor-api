@@ -372,6 +372,29 @@ class PaymentController extends Controller
                 'invoice_number' => $invoice->invoice_number,
             ]);
 
+            try {
+                $pdf  = \Barryvdh\DomPDF\Facade\Pdf::loadView('pdf.invoice', [
+                    'invoice' => $invoice,
+                    'order'   => $order,
+                ]);
+
+                $path = "invoices/{$invoice->invoice_number}.pdf";
+
+                \Illuminate\Support\Facades\Storage::disk('public')->put($path, $pdf->output());
+
+                $invoice->update(['pdf_url' => $path]);
+
+                Log::info('Invoice PDF generated', [
+                    'invoice' => $invoice->invoice_number,
+                    'path'    => $path,
+                ]);
+            } catch (\Throwable $e) {
+                Log::warning('Invoice PDF generation failed', [
+                    'invoice' => $invoice->invoice_number,
+                    'error'   => $e->getMessage(),
+                ]);
+            }
+
             return $invoice;
         } catch (\Throwable $e) {
             Log::warning('Invoice creation failed for order', [

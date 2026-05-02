@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+    <title>Invoice {{ $invoice->invoice_number }}</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: Arial, Helvetica, sans-serif;
+            font-size: 12px;
+            color: #171a20;
+            background: #ffffff;
+        }
+
+        .page {
+            padding: 40px 48px;
+        }
+
+        /* Header */
+        .header-table {
+            width: 100%;
+            border-bottom: 3px solid #f4511e;
+            padding-bottom: 20px;
+            margin-bottom: 28px;
+        }
+        .header-table td { vertical-align: top; }
+        .brand {
+            font-size: 22px;
+            font-weight: 700;
+            letter-spacing: 3px;
+            text-transform: uppercase;
+            color: #171a20;
+        }
+        .invoice-label {
+            font-size: 20px;
+            font-weight: 700;
+            color: #171a20;
+            text-align: right;
+        }
+        .invoice-number {
+            font-size: 13px;
+            color: #5c5e62;
+            text-align: right;
+            margin-top: 4px;
+        }
+
+        /* Meta section */
+        .meta-table {
+            width: 100%;
+            margin-bottom: 28px;
+        }
+        .meta-table td { vertical-align: top; width: 50%; }
+        .section-title {
+            font-size: 10px;
+            font-weight: 700;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+            color: #9e9e9e;
+            margin-bottom: 6px;
+        }
+        .meta-value {
+            font-size: 12px;
+            color: #171a20;
+            line-height: 1.6;
+        }
+        .meta-value strong {
+            font-weight: 700;
+        }
+
+        /* Items table */
+        .items-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 24px;
+        }
+        .items-table thead tr {
+            background-color: #f5f5f5;
+        }
+        .items-table th {
+            padding: 9px 12px;
+            font-size: 10px;
+            font-weight: 700;
+            letter-spacing: 0.5px;
+            text-transform: uppercase;
+            color: #5c5e62;
+            text-align: left;
+            border-bottom: 1px solid #dddddd;
+        }
+        .items-table th.right { text-align: right; }
+        .items-table td {
+            padding: 10px 12px;
+            font-size: 12px;
+            color: #171a20;
+            border-bottom: 1px solid #eeeeee;
+            vertical-align: top;
+        }
+        .items-table td.right { text-align: right; }
+        .item-size {
+            font-size: 11px;
+            color: #5c5e62;
+            margin-top: 2px;
+        }
+
+        /* Totals */
+        .totals-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 36px;
+        }
+        .totals-table td {
+            padding: 6px 12px;
+            font-size: 12px;
+        }
+        .totals-table .label { color: #5c5e62; text-align: right; width: 75%; }
+        .totals-table .amount { color: #171a20; text-align: right; font-weight: 700; }
+        .totals-table .total-row td {
+            border-top: 2px solid #dddddd;
+            padding-top: 10px;
+            font-size: 14px;
+        }
+
+        /* Status badge */
+        .status-paid {
+            display: inline-block;
+            background-color: #e8f5e9;
+            color: #2e7d32;
+            font-size: 10px;
+            font-weight: 700;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+            padding: 3px 8px;
+        }
+
+        /* Footer */
+        .footer {
+            border-top: 1px solid #eeeeee;
+            padding-top: 16px;
+            color: #9e9e9e;
+            font-size: 11px;
+            line-height: 1.6;
+        }
+    </style>
+</head>
+<body>
+<div class="page">
+
+    <!-- Header -->
+    <table class="header-table">
+        <tr>
+            <td><span class="brand">Okelcor</span></td>
+            <td>
+                <div class="invoice-label">Invoice</div>
+                <div class="invoice-number">{{ $invoice->invoice_number }}</div>
+            </td>
+        </tr>
+    </table>
+
+    <!-- Bill to / Invoice details -->
+    <table class="meta-table">
+        <tr>
+            <td>
+                <div class="section-title">Bill to</div>
+                <div class="meta-value">
+                    <strong>{{ $order->customer_name }}</strong><br>
+                    {{ $order->customer_email }}<br>
+                    @if ($order->customer_phone){{ $order->customer_phone }}<br>@endif
+                    {{ $order->address }}<br>
+                    {{ $order->city }}, {{ $order->postal_code }}<br>
+                    {{ $order->country }}
+                </div>
+            </td>
+            <td style="text-align: right;">
+                <div class="section-title">Invoice details</div>
+                <div class="meta-value">
+                    <table style="margin-left: auto; border-collapse: collapse;">
+                        <tr>
+                            <td style="color: #5c5e62; padding: 2px 8px 2px 0;">Invoice number</td>
+                            <td style="font-weight: 700;">{{ $invoice->invoice_number }}</td>
+                        </tr>
+                        <tr>
+                            <td style="color: #5c5e62; padding: 2px 8px 2px 0;">Date issued</td>
+                            <td>{{ $invoice->issued_at->format('d M Y') }}</td>
+                        </tr>
+                        <tr>
+                            <td style="color: #5c5e62; padding: 2px 8px 2px 0;">Order reference</td>
+                            <td>{{ $order->ref }}</td>
+                        </tr>
+                        <tr>
+                            <td style="color: #5c5e62; padding: 2px 8px 2px 0;">Status</td>
+                            <td><span class="status-paid">{{ strtoupper($invoice->status) }}</span></td>
+                        </tr>
+                    </table>
+                </div>
+            </td>
+        </tr>
+    </table>
+
+    <!-- Items -->
+    <table class="items-table">
+        <thead>
+            <tr>
+                <th>Product</th>
+                <th class="right" style="width: 50px;">Qty</th>
+                <th class="right" style="width: 90px;">Unit price</th>
+                <th class="right" style="width: 90px;">Amount</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach ($order->items as $item)
+            <tr>
+                <td>
+                    {{ $item->brand }} — {{ $item->name }}
+                    @if ($item->size)
+                    <div class="item-size">{{ $item->size }}</div>
+                    @endif
+                </td>
+                <td class="right">{{ $item->quantity }}</td>
+                <td class="right">&euro;{{ number_format((float) $item->unit_price, 2) }}</td>
+                <td class="right">&euro;{{ number_format((float) $item->line_total, 2) }}</td>
+            </tr>
+            @endforeach
+        </tbody>
+    </table>
+
+    <!-- Totals -->
+    <table class="totals-table">
+        @if ((float) $order->delivery_cost > 0)
+        <tr>
+            <td class="label">Subtotal</td>
+            <td class="amount">&euro;{{ number_format((float) $order->subtotal, 2) }}</td>
+        </tr>
+        <tr>
+            <td class="label">Delivery</td>
+            <td class="amount">&euro;{{ number_format((float) $order->delivery_cost, 2) }}</td>
+        </tr>
+        @endif
+        <tr class="total-row">
+            <td class="label">Total</td>
+            <td class="amount">&euro;{{ number_format((float) $order->total, 2) }}</td>
+        </tr>
+    </table>
+
+    <!-- Footer -->
+    <div class="footer">
+        <p>Okelcor &mdash; support@okelcor.com &mdash; okelcor.com</p>
+        <p style="margin-top: 4px;">Thank you for your business.</p>
+    </div>
+
+</div>
+</body>
+</html>

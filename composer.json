@@ -8,6 +8,7 @@
     "require": {
         "php": "^8.3",
         "adyen/php-api-library": "^29.0",
+        "barryvdh/laravel-dompdf": "^3.1",
         "intervention/image-laravel": "^4.0",
         "laravel/framework": "^13.0",
         "laravel/sanctum": "^4.3",

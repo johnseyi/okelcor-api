@@ -476,7 +476,7 @@ class CustomerAuthController extends Controller
                 'due_at'         => $inv->due_at?->toIso8601String(),
                 'amount'         => (float) $inv->amount,
                 'status'         => $inv->status,
-                'pdf_url'        => $inv->pdf_url,
+                'pdf_url'        => $inv->pdf_url ? url(\Illuminate\Support\Facades\Storage::url($inv->pdf_url)) : null,
                 'order_ref'      => $inv->order_ref,
             ]);
 
