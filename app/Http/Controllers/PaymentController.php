@@ -335,41 +335,51 @@ class PaymentController extends Controller
                 return null;
             }
 
-            // Idempotency: return existing invoice if already created for this order_ref
-            $existing = Invoice::where('order_ref', $order->ref)->first();
-            if ($existing) {
-                Log::info('Invoice already exists for order, skipping', ['ref' => $order->ref]);
-                return $existing;
+            // Check if an invoice record already exists for this order
+            $invoice = Invoice::where('order_ref', $order->ref)->first();
+
+            if ($invoice && $invoice->pdf_url) {
+                // Invoice record and PDF both exist — fully complete, nothing to do
+                return $invoice;
             }
 
-            $invoice = DB::transaction(function () use ($customer, $order) {
-                $year   = now()->year;
-                $prefix = "INV-{$year}-";
+            if (! $invoice) {
+                // Create the invoice record inside a transaction with a sequence lock
+                $invoice = DB::transaction(function () use ($customer, $order) {
+                    $year   = now()->year;
+                    $prefix = "INV-{$year}-";
 
-                // Lock year's rows to prevent concurrent sequence conflicts
-                $lastNumber = Invoice::where('invoice_number', 'like', "{$prefix}%")
-                    ->lockForUpdate()
-                    ->orderByDesc('invoice_number')
-                    ->value('invoice_number');
+                    // Lock year's rows to prevent concurrent sequence conflicts
+                    $lastNumber = Invoice::where('invoice_number', 'like', "{$prefix}%")
+                        ->lockForUpdate()
+                        ->orderByDesc('invoice_number')
+                        ->value('invoice_number');
 
-                $sequence      = $lastNumber ? (int) substr($lastNumber, strlen($prefix)) + 1 : 1;
-                $invoiceNumber = $prefix . str_pad($sequence, 4, '0', STR_PAD_LEFT);
+                    $sequence      = $lastNumber ? (int) substr($lastNumber, strlen($prefix)) + 1 : 1;
+                    $invoiceNumber = $prefix . str_pad($sequence, 4, '0', STR_PAD_LEFT);
 
-                return Invoice::create([
-                    'customer_id'    => $customer->id,
-                    'invoice_number' => $invoiceNumber,
-                    'issued_at'      => now(),
-                    'due_at'         => null,
-                    'amount'         => $order->total,
-                    'status'         => 'paid',
-                    'pdf_url'        => null,
-                    'order_ref'      => $order->ref,
+                    return Invoice::create([
+                        'customer_id'    => $customer->id,
+                        'invoice_number' => $invoiceNumber,
+                        'issued_at'      => now(),
+                        'due_at'         => null,
+                        'amount'         => $order->total,
+                        'status'         => 'paid',
+                        'pdf_url'        => null,
+                        'order_ref'      => $order->ref,
+                    ]);
+                });
+
+                Log::info('Invoice created for order', [
+                    'ref'            => $order->ref,
+                    'invoice_number' => $invoice->invoice_number,
                 ]);
-            });
+            }
 
-            Log::info('Invoice created for order', [
-                'ref'            => $order->ref,
-                'invoice_number' => $invoice->invoice_number,
+            // Generate PDF for both new invoices and existing ones with pdf_url=null
+            Log::info('Invoice PDF generation started', [
+                'invoice'   => $invoice->invoice_number,
+                'order_ref' => $order->ref,
             ]);
 
             try {
