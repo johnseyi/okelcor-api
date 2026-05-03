@@ -223,7 +223,7 @@ GET    /admin/orders
 GET    /admin/orders/{id}
 PUT    /admin/orders/{id}
 PATCH  /admin/orders/{id}/status
-DELETE /admin/orders/{id}               ← super_admin, admin only
+DELETE /admin/orders/{id}               ← super_admin only
 
 # Order CSV import/export
 POST   /admin/orders/import
@@ -395,13 +395,13 @@ NOT through the Vercel proxy.
 |--------|------|-------|
 | `id` | bigint | PK |
 | `customer_id` | bigint FK | cascade delete |
-| `invoice_number` | varchar(50) | unique |
+| `invoice_number` | varchar(50) | unique — format `INV-YYYY-NNNN` |
 | `issued_at` | timestamp | |
-| `due_at` | timestamp | |
+| `due_at` | timestamp | nullable |
 | `amount` | decimal(10,2) | |
 | `status` | enum | `paid`, `unpaid`, `overdue` — default `unpaid` |
-| `pdf_url` | varchar(500) | nullable |
-| `order_ref` | varchar(30) | nullable |
+| `pdf_url` | varchar(500) | nullable — relative path e.g. `invoices/INV-2026-0001.pdf`; returned as absolute URL |
+| `order_ref` | varchar(30) | nullable — unique per invoice |
 | `created_at` / `updated_at` | timestamp | |
 
 ### `products`
@@ -490,6 +490,25 @@ NOT through the Vercel proxy.
 | `unit_price` | decimal(10,2) | |
 | `quantity` | int | |
 | `line_total` | decimal(10,2) | |
+
+### `order_logs`
+Append-only audit trail — no `updated_at`, never mutated after insert.
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | bigint | PK |
+| `order_id` | bigint FK | nullable → nullOnDelete — log survives order deletion |
+| `order_ref` | varchar(30) | denormalized — readable even after order hard-deleted |
+| `admin_user_id` | bigint FK | nullable → nullOnDelete — log survives user deletion |
+| `admin_user_email` | varchar(255) | nullable — denormalized |
+| `action` | enum | `status_changed`, `cancelled`, `deleted`, `tracking_updated`, `payment_status_changed` |
+| `old_value` | varchar(100) | nullable — previous status/value |
+| `new_value` | varchar(100) | nullable — new status/value |
+| `notes` | text | nullable — optional context |
+| `ip_address` | varchar(45) | nullable |
+| `created_at` | timestamp | auto-set, no `updated_at` |
+
+Indexes: `(order_id, created_at)`, `order_ref`.
 
 ### `admin_users`
 | Column | Type | Notes |
@@ -594,9 +613,19 @@ Locales ENUM: `en`, `de`, `fr`, `es`
 8. Stripe sends webhook to `POST /api/v1/payments/webhook`.
 9. Backend verifies `Stripe-Signature` header using `STRIPE_WEBHOOK_SECRET`.
 10. Handled events:
-    - `checkout.session.completed` → `payment_status=paid`, `status=confirmed`, sends `OrderConfirmation` to customer + `OrderReceived` to `ORDER_EMAIL`
+    - `checkout.session.completed` → `payment_status=paid`, `status=confirmed`, creates invoice record + generates PDF, sends `OrderConfirmation` (with invoice number) to customer + `OrderReceived` to `ORDER_EMAIL`
     - `payment_intent.payment_failed` → `payment_status=failed`, `status=cancelled`
     - `charge.refunded` → `payment_status=refunded`
+
+**Invoice auto-creation (Stripe path):**
+- Triggered inside `markOrderPaid()` after the order is confirmed
+- Only created if a `Customer` account exists for `order.customer_email` — guest checkouts produce no invoice
+- Invoice number: `INV-YYYY-NNNN` — sequence generated inside `DB::transaction` with `lockForUpdate()` on all same-year rows to prevent race conditions on concurrent webhook retries
+- PDF generated immediately via `barryvdh/laravel-dompdf` (v3.1.2) and stored to `storage/app/public/invoices/{invoice_number}.pdf`
+- `invoices.pdf_url` stores the **relative** path; `GET /api/v1/auth/invoices` returns an **absolute URL** via `url(Storage::url($path))`
+- Idempotency: if invoice record already exists with `pdf_url` set → return early; if `pdf_url` is null → skip record creation, re-run PDF generation only
+- PDF failure is non-blocking — logged as warning; invoice record is still returned and email still sent
+- Recovery: run `php artisan invoices:generate-missing-pdfs` to backfill any invoices where PDF generation failed
 
 **Order status flow (Stripe path):**
 ```
@@ -629,6 +658,40 @@ pending → confirmed (Stripe webhook) → processing (admin sets manually) → 
 - Shipment fields (carrier, tracking_number, container_number, ETA) shown conditionally when set
 - Tracking URL: `{FRONTEND_URL}/account/orders/{ref}`
 - Env var required: `ORDER_EMAIL=support@okelcor.com`
+- `OrderConfirmation` accepts an optional `?Invoice $invoice` — when set, adds an invoice block to the email showing invoice number and a link to `/account/invoices` on the frontend. Block is omitted if invoice is null (guest checkout).
+
+### Order Security & Audit Logging
+
+**Order deletion (super_admin only):**
+- Route middleware: `admin.role:super_admin` — admin role cannot delete
+- Request body must include `confirm_ref` matching `order.ref` exactly — 422 if mismatch
+- Orders with `payment_status=paid` cannot be deleted — returns 409 Conflict
+- `deleted` log entry is written **before** `$order->items()->delete()` and `$order->delete()` to capture data while record exists
+
+**Cancel transition guard:**
+- `PUT /admin/orders/{id}` and `PATCH /admin/orders/{id}/status` reject cancellation if current status is already `cancelled` or `delivered` — returns 409 Conflict
+
+**Audit log (order_logs):**
+- Written by `AdminOrderController::writeLog()` — wrapped in try/catch so log failure never blocks primary action
+- `GET /admin/orders/{id}` response includes a `logs` array:
+```json
+{
+  "logs": [
+    {
+      "id": 1,
+      "action": "status_changed",
+      "old_value": "pending",
+      "new_value": "confirmed",
+      "notes": null,
+      "admin_user_id": 3,
+      "admin_user_email": "admin@okelcor.com",
+      "ip_address": "1.2.3.4",
+      "created_at": "2026-05-02T12:00:00+00:00"
+    }
+  ]
+}
+```
+- Actions logged: `status_changed` (any status transition), `cancelled` (status set to cancelled), `tracking_updated` (any of carrier/tracking_number/container_number/estimated_delivery/eta), `deleted` (hard delete before records removed)
 
 ### Container Tracking (Public)
 - `GET /api/v1/tracking/{container}` — auto-detects carrier by tracking number format
@@ -732,6 +795,7 @@ Allowed origins:
 | `brands.logo` | relative: `brands/uuid.png` | absolute URL (`logo_url`) |
 | `hero_slides.image_url` | relative: `hero/uuid.jpg` | absolute URL |
 | `hero_slides.video_url` | relative: `hero/uuid.mp4` | absolute URL |
+| `invoices.pdf_url` | relative: `invoices/INV-YYYY-NNNN.pdf` | absolute URL |
 
 Storage disk: `public` → `storage/app/public/` → symlinked to `public/storage/`
 Conversion: `url(Storage::url($relativePath))` in controller formatters.
@@ -746,7 +810,7 @@ Conversion: `url(Storage::url($relativePath))` in controller formatters.
 | `Article` | Yes | `POST /admin/articles/{id}/restore` |
 | `Brand` | No (hard delete) | — |
 | `HeroSlide` | No (hard delete) | — |
-| `Order` | No (hard delete) | `DELETE /admin/orders/{id}` — super_admin, admin only |
+| `Order` | No (hard delete) | `DELETE /admin/orders/{id}` — super_admin only; requires `confirm_ref` body param matching order.ref; blocked if `payment_status=paid` |
 
 ---
 
@@ -773,6 +837,7 @@ Conversion: `url(Storage::url($relativePath))` in controller formatters.
 | `import:wix-customers {file}` | Import customers from Wix contacts CSV |
 | `import:wix-customers {file} --no-email` | Import customers without sending welcome emails |
 | `orders:cleanup-test-stripe --date=YYYY-MM-DD --email=EMAIL --dry-run` | Delete test Stripe orders by date + email (always dry-run first) |
+| `invoices:generate-missing-pdfs [--dry-run] [--invoice=INV-YYYY-NNNN]` | Generate PDF files for invoices where `pdf_url IS NULL`; dry-run lists affected rows without writing |
 
 ---
 
@@ -784,7 +849,6 @@ Conversion: `url(Storage::url($relativePath))` in controller formatters.
 | Adyen approval | Legacy/inactive until business account/API credentials are approved |
 | `GET /admin/products?trashed=only` | Restore works but no dedicated trashed product list endpoint |
 | Admin customer edit/deactivate | GET /admin/customers list exists; no PUT/DELETE per customer yet |
-| Invoice PDF generation | `invoices` table and API exist; no PDF generation, admin UI, or import flow yet |
 
 ---
 
