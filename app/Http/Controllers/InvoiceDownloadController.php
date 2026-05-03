@@ -3,25 +3,48 @@
 namespace App\Http\Controllers;
 
 use App\Models\Invoice;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
 
 class InvoiceDownloadController extends Controller
 {
-    public function download(Request $request, Invoice $invoice): BinaryFileResponse
+    public function download(Request $request, Invoice $invoice): BinaryFileResponse|JsonResponse
     {
-        if ($request->user()->id !== $invoice->customer_id) {
-            abort(403);
+        $customer = $request->user();
+
+        if (! $customer) {
+            return response()->json(['message' => 'Unauthenticated.'], 401);
+        }
+
+        if ($customer->id !== $invoice->customer_id) {
+            Log::warning('Invoice download: ownership check failed', [
+                'invoice_id'  => $invoice->id,
+                'customer_id' => $customer->id,
+                'owner_id'    => $invoice->customer_id,
+            ]);
+            return response()->json(['message' => 'You do not have access to this invoice.'], 403);
         }
 
         if (! $invoice->pdf_url) {
-            abort(404, 'Invoice PDF is not yet available.');
+            Log::warning('Invoice download: pdf_url is null', [
+                'invoice_id'  => $invoice->id,
+                'customer_id' => $customer->id,
+            ]);
+            return response()->json(['message' => 'Invoice PDF is not available yet.'], 404);
         }
 
         $path = storage_path('app/public/' . $invoice->pdf_url);
 
         if (! file_exists($path)) {
-            abort(404, 'Invoice PDF file not found.');
+            Log::warning('Invoice download: file missing on disk', [
+                'invoice_id'  => $invoice->id,
+                'customer_id' => $customer->id,
+                'pdf_url'     => $invoice->pdf_url,
+                'path'        => $path,
+            ]);
+            return response()->json(['message' => 'Invoice PDF file was not found.'], 404);
         }
 
         return response()->download($path, $invoice->invoice_number . '.pdf');
