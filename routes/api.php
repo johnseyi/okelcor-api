@@ -77,11 +77,10 @@ Route::prefix('v1')->group(function () {
         Route::delete('addresses/{id}', [CustomerAddressController::class, 'destroy']);
     });
 
-    // Invoice download — protected, no /auth prefix
-    Route::middleware('auth.customer')->group(function () {
-        Route::get('invoices/{invoice}/download', [InvoiceDownloadController::class, 'download'])
-            ->name('invoices.download');
-    });
+    // Invoice download — signed URL, no Bearer token needed (browser-friendly)
+    Route::get('invoices/{invoice}/download', [InvoiceDownloadController::class, 'download'])
+        ->name('invoices.download')
+        ->middleware('signed');
 
     // -------------------------------------------------------------------------
     // Public — no auth required

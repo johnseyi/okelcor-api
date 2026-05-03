@@ -476,7 +476,12 @@ class CustomerAuthController extends Controller
                 'due_at'         => $inv->due_at?->toIso8601String(),
                 'amount'         => (float) $inv->amount,
                 'status'         => $inv->status,
-                'pdf_url'        => $inv->pdf_url ? route('invoices.download', $inv->id) : null,
+                'pdf_url'        => $inv->pdf_url
+                    ? URL::temporarySignedRoute('invoices.download', now()->addHour(), [
+                        'invoice' => $inv->id,
+                        'cid'     => $request->user()->id,
+                    ])
+                    : null,
                 'order_ref'      => $inv->order_ref,
             ]);
 
