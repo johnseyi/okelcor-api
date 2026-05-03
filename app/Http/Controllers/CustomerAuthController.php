@@ -465,7 +465,16 @@ class CustomerAuthController extends Controller
     // -------------------------------------------------------------------------
     public function invoices(Request $request): JsonResponse
     {
-        $invoices = $request->user()
+        // Force HTTPS root so signed URLs match the scheme the browser actually hits.
+        // Namecheap sits behind a reverse proxy that terminates SSL; APP_URL may be
+        // http:// internally, causing a scheme mismatch that fails signature validation.
+        $apiRoot = rtrim(config('app.url'), '/');
+        URL::forceRootUrl($apiRoot);
+        URL::forceScheme('https');
+
+        $customer = $request->user();
+
+        $invoices = $customer
             ->invoices()
             ->orderByDesc('issued_at')
             ->get()
@@ -479,11 +488,14 @@ class CustomerAuthController extends Controller
                 'pdf_url'        => $inv->pdf_url
                     ? URL::temporarySignedRoute('invoices.download', now()->addHour(), [
                         'invoice' => $inv->id,
-                        'cid'     => $request->user()->id,
+                        'cid'     => $customer->id,
                     ])
                     : null,
                 'order_ref'      => $inv->order_ref,
             ]);
+
+        URL::forceRootUrl(null);
+        URL::forceScheme(null);
 
         return response()->json(['data' => $invoices]);
     }
