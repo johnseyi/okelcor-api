@@ -10,8 +10,7 @@ class InvoiceDownloadController extends Controller
 {
     public function download(Request $request, Invoice $invoice): BinaryFileResponse
     {
-        // Ownership is embedded in the signed URL as `cid` — tamper-proof via signature
-        if ((int) $request->query('cid') !== $invoice->customer_id) {
+        if ($request->user()->id !== $invoice->customer_id) {
             abort(403);
         }
 
