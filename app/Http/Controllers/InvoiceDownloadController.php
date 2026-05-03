@@ -20,17 +20,19 @@ class InvoiceDownloadController extends Controller
 
         if ($customer->id !== $invoice->customer_id) {
             Log::warning('Invoice download: ownership check failed', [
-                'invoice_id'  => $invoice->id,
-                'customer_id' => $customer->id,
-                'owner_id'    => $invoice->customer_id,
+                'invoice_id'          => $invoice->id,
+                'invoice_customer_id' => $invoice->customer_id,
+                'auth_customer_id'    => $customer->id,
             ]);
             return response()->json(['message' => 'You do not have access to this invoice.'], 403);
         }
 
         if (! $invoice->pdf_url) {
             Log::warning('Invoice download: pdf_url is null', [
-                'invoice_id'  => $invoice->id,
-                'customer_id' => $customer->id,
+                'invoice_id'          => $invoice->id,
+                'invoice_customer_id' => $invoice->customer_id,
+                'auth_customer_id'    => $customer->id,
+                'pdf_url'             => null,
             ]);
             return response()->json(['message' => 'Invoice PDF is not available yet.'], 404);
         }
@@ -39,10 +41,10 @@ class InvoiceDownloadController extends Controller
 
         if (! file_exists($path)) {
             Log::warning('Invoice download: file missing on disk', [
-                'invoice_id'  => $invoice->id,
-                'customer_id' => $customer->id,
-                'pdf_url'     => $invoice->pdf_url,
-                'path'        => $path,
+                'invoice_id'          => $invoice->id,
+                'invoice_customer_id' => $invoice->customer_id,
+                'auth_customer_id'    => $customer->id,
+                'pdf_url'             => $invoice->pdf_url,
             ]);
             return response()->json(['message' => 'Invoice PDF file was not found.'], 404);
         }
