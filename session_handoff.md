@@ -1,5 +1,5 @@
 # Session Handoff — Okelcor API
-Last updated: 2026-05-04
+Last updated: 2026-05-04 (session 2)
 
 ## Project
 Laravel 13.2 / PHP 8.3 REST API for Okelcor B2B tyre wholesale.
@@ -64,6 +64,8 @@ GET    /api/v1/auth/addresses
 POST   /api/v1/auth/addresses
 PUT    /api/v1/auth/addresses/{id}
 DELETE /api/v1/auth/addresses/{id}
+
+POST   /api/v1/auth/orders/{ref}/checkout   ← Pay Now — creates/refreshes Stripe Checkout Session for pending order
 ```
 
 #### GET /api/v1/auth/quotes — response shape
@@ -115,6 +117,29 @@ Status values: `paid` | `unpaid` | `overdue`
   - 404 `"Invoice PDF file was not found."` — file missing on disk
 - Controller: `InvoiceDownloadController@download`
 - All 403/404 cases write `Log::warning` with `invoice_id`, `invoice_customer_id`, `auth_customer_id`, `pdf_url`
+
+#### POST /api/v1/auth/orders/{ref}/checkout — Customer Pay Now
+- Middleware: `auth.customer` — requires `Authorization: Bearer {customer_token}`
+- Ownership: matches `order.customer_email` to `customer.email` (case-insensitive); returns 404 if no match (does not leak order existence)
+- Guards:
+  - 404 — order not found or wrong customer
+  - 422 `"This order cannot be paid by Stripe."` — `payment_method ≠ stripe`
+  - 409 `"This order is not awaiting payment."` — `payment_status ≠ pending`
+  - 502 — Stripe API error
+- Creates a new Stripe Checkout Session via `StripeService::createCheckoutSessionForOrder($order)`, saves `payment_session_id`
+- Does NOT create an invoice — invoice is deferred to the Stripe webhook `checkout.session.completed`
+- Controller: `CustomerOrderController@checkout`
+
+Response (200):
+```json
+{
+  "data": {
+    "checkout_url": "https://checkout.stripe.com/...",
+    "checkout_session_id": "cs_...",
+    "order_ref": "OKL-XXXXX"
+  }
+}
+```
 
 ### Public routes (no auth)
 ```
@@ -401,17 +426,24 @@ Response (201):
     "quote_ref": "OKL-QR-XXXXXX",
     "status": "confirmed",
     "payment_status": "pending",
-    "total": 17900.00
+    "total": 17900.00,
+    "checkout_url": "https://checkout.stripe.com/..."
   },
   "message": "Quote converted to order successfully."
 }
 ```
+`checkout_url` is null for bank transfer orders; present for Stripe orders. Frontend should show a "Pay now" button if non-null.
+```
 - Creates order with `mode='manual'`, `status='confirmed'`, `payment_status='pending'`
 - `payment_method` defaults to `bank_transfer` if not provided
+- Tax calculated before transaction via `TaxService::calculate(country, vatValid, customerType)` — stored on order as `tax_treatment`, `tax_rate`, `tax_amount`, `is_reverse_charge`
+- `customerType` inferred: `company_name` present → `b2b`; else linked `customer.customer_type`; else null (treated as B2C)
+- `taxableBase = subtotal + delivery_cost`; `taxAmount = taxableBase × tax_rate / 100`; `total = taxableBase + taxAmount`
+- If `payment_method=stripe`: calls `StripeService::createCheckoutSessionForOrder($order)`, saves `payment_session_id`, passes `checkout_url` to email — failure is caught, logged, and does NOT block the 201 response
 - Sets `quote_requests.order_id` = new order ID to prevent re-conversion
 - Writes `OrderLog` entry with `action='status_changed'`, `new_value='confirmed'`, notes referencing quote ref
-- Sends `QuoteConvertedToOrder` email to `quote.email` after transaction — failure is logged as warning and never rolls back the order
-- Invoice is NOT auto-created — admin manually sets `payment_status=paid` later, which should trigger invoice creation if needed
+- Sends `QuoteConvertedToOrder` email to `quote.email` after transaction — failure is caught and logged, never rolls back the order
+- Invoice is NOT auto-created on conversion — invoice is created by the Stripe webhook `checkout.session.completed` (Stripe path) or must be manually triggered (bank transfer path)
 - FormRequest: `ConvertQuoteToOrderRequest`
 
 #### GET /admin/quote-requests/{id} — detail response fields
@@ -560,6 +592,11 @@ NOT through the Vercel proxy.
 | `status` | enum | `paid`, `unpaid`, `overdue` — default `unpaid` |
 | `pdf_url` | varchar(500) | nullable — relative path e.g. `invoices/INV-2026-0001.pdf`; returned as absolute URL |
 | `order_ref` | varchar(30) | nullable — unique per invoice |
+| `subtotal_net` | decimal(10,2) | nullable — `order.subtotal + order.delivery_cost` |
+| `tax_treatment` | varchar(30) | nullable — mirrors `orders.tax_treatment` |
+| `tax_rate` | decimal(5,2) | nullable |
+| `tax_amount` | decimal(10,2) | nullable |
+| `is_reverse_charge` | tinyint | default 0 |
 | `created_at` / `updated_at` | timestamp | |
 
 ### `products`
@@ -653,6 +690,10 @@ Only quotes with `status='quoted'` can be converted to an order.
 | `eta` | date | nullable |
 | `vat_number` | varchar(20) | nullable |
 | `vat_valid` | tinyint | nullable |
+| `tax_treatment` | varchar(30) | nullable — `standard`, `reverse_charge`, `exempt` |
+| `tax_rate` | decimal(5,2) | nullable — e.g. `19.00` |
+| `tax_amount` | decimal(10,2) | nullable — computed: `taxable_base × tax_rate / 100` |
+| `is_reverse_charge` | tinyint | default 0 — true for EU B2B with valid VAT |
 | `admin_notes` | text | nullable |
 | `ip_address` | varchar(45) | nullable, hidden from API |
 
@@ -782,7 +823,8 @@ Locales ENUM: `en`, `de`, `fr`, `es`
 - Package: `stripe/stripe-php`.
 - Config: `config/services.php` → `stripe.secret`, `stripe.webhook_secret`, `stripe.currency`.
 - Env vars: `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_CURRENCY`.
-- `StripeService::createCheckoutSession(array $orderData): array`.
+- `StripeService::createCheckoutSession(array $orderData): array` — used by `POST /payments/create-session` (cart checkout).
+- `StripeService::createCheckoutSessionForOrder(Order $order): array` — used by quote-to-order conversion (when `payment_method=stripe`) and customer Pay Now endpoint. Builds line items from `$order->items`, adds delivery row if `delivery_cost > 0`, adds VAT line item if `tax_amount > 0`.
 
 **Flow:**
 1. Frontend sends cart to `POST /api/v1/payments/create-session`.
@@ -835,25 +877,73 @@ pending → confirmed (Stripe webhook) → processing (admin sets manually) → 
 - Mollie code/config remain present, but `POST /api/v1/orders/mollie-webhook` returns HTTP 410 with `{ "message": "Mollie payments are currently disabled." }`.
 - Do not use Adyen or Mollie unless explicitly re-enabled later.
 
-### Order Confirmation Emails
-- `OrderConfirmation` mailable → sent to customer **after Stripe webhook confirms payment** (`checkout.session.completed`)
-- `OrderReceived` mailable → sent to `ORDER_EMAIL` env var **after Stripe webhook confirms payment**
-- `QuoteConvertedToOrder` mailable → sent to `quote.email` **immediately after quote-to-order conversion** succeeds; failure is caught and logged, never blocks the 201 response
-- Manual order flow (`POST /api/v1/orders`) sends `OrderReceived` to admin only — no customer email on manual orders
-- Views: `emails/order-confirmation.blade.php`, `emails/order-received.blade.php`, `emails/quote-converted-to-order.blade.php`
+### Transactional Emails
 
-**QuoteConvertedToOrder email content:**
+| Mailable | Trigger | Recipient | View |
+|----------|---------|-----------|------|
+| `OrderConfirmation` | Stripe webhook `checkout.session.completed` | customer | `emails/order-confirmation.blade.php` |
+| `OrderReceived` | Stripe webhook `checkout.session.completed` | `ORDER_EMAIL` | `emails/order-received.blade.php` |
+| `QuoteConvertedToOrder` | Admin converts quote to order | `quote.email` | `emails/quote-converted-to-order.blade.php` |
+| `QuoteRequestReceived` | Customer submits quote (`POST /quote-requests`) | `QUOTE_EMAIL` | `emails/quote-request-received.blade.php` |
+| `QuoteRequestAcknowledgement` | Customer submits quote (`POST /quote-requests`) | submitter's email | `emails/quote-request-acknowledgement.blade.php` |
+| `AdminWelcome` | Super admin creates new admin user | new admin | `emails/admin-welcome.blade.php` |
+| `CustomerEmailVerification` | Customer registers | customer | `emails/customer-verify-email.blade.php` |
+| `CustomerPasswordReset` | Customer requests password reset | customer | `emails/customer-reset-password.blade.php` |
+
+- Manual order flow (`POST /api/v1/orders`) sends `OrderReceived` to admin only — no customer email on manual orders
+- All sends are synchronous (`QUEUE_CONNECTION=sync`)
+- All failures are wrapped in try/catch — email failure never rolls back the primary action
+- Failures logged as `Log::error` (survives `LOG_LEVEL=error` on production)
+- Config keys (not env() calls): `config('mail.quote_email')` → `QUOTE_EMAIL`, `config('mail.order_email')` → `ORDER_EMAIL`
+
+**QuoteRequestReceived (admin notification):**
+- Subject: `New quote request — {ref_number}`
+- Full contact + quote details: name, company, email, phone, country, VAT, category, brand, size, qty, budget, timeline, notes, attachment note
+- Sent to: `config('mail.quote_email')` — skipped silently if not set
+
+**QuoteRequestAcknowledgement (customer auto-reply):**
+- Subject: `We received your quote request — {ref_number}`
+- Shows ref, submitted timestamp, size, qty, timeline
+- "What happens next?" — review → quote by email → approve → order
+
+**QuoteConvertedToOrder email:**
 - Subject: `Your quote has been converted to an order — {order_ref}`
 - Shows quote_ref + order_ref, date, payment method, amber Pending badge
-- Full items table (name, size, qty, unit price, line total); delivery cost row if > 0; order total
-- "What happens next?" block — payment instructions → sourcing → shipping
+- Full items table with tax breakdown: Subtotal (net) / Delivery (if > 0) / VAT row / Total gross — guarded by `$order->tax_treatment !== null`; old orders (null) show total only
+- If `$checkoutUrl` is set (Stripe orders): "Pay securely with Stripe" CTA button + Stripe next steps
+- If no `$checkoutUrl` (bank transfer): bank transfer next steps block
 - Sent to: `quote.email`
-- Templates are plain transactional HTML — white background, minimal color (3px orange top border only), no image assets
-- Contact email in templates: `support@okelcor.com`
-- Shipment fields (carrier, tracking_number, container_number, ETA) shown conditionally when set
-- Tracking URL: `{FRONTEND_URL}/account/orders/{ref}`
-- Env var required: `ORDER_EMAIL=support@okelcor.com`
-- `OrderConfirmation` accepts an optional `?Invoice $invoice` — when set, adds an invoice block to the email showing invoice number and a link to `/account/invoices` on the frontend. Block is omitted if invoice is null (guest checkout).
+
+**OrderConfirmation email:**
+- Tax breakdown in tfoot: Subtotal (net) / Delivery / VAT / Total — guarded by `$order->tax_treatment !== null`
+- Optional invoice block (invoice number + link to `/account/invoices`) — omitted if invoice is null (guest checkout)
+
+**All email templates:**
+- Plain transactional HTML — white background, 3px orange top border, no image assets
+- Contact footer: `support@okelcor.com`
+- Env vars required: `ORDER_EMAIL=support@okelcor.com`, `QUOTE_EMAIL=support@okelcor.com`
+
+### Tax / VAT Calculation (TaxService)
+- `App\Services\TaxService::calculate(?string $country, ?bool $vatValid, ?string $customerType = null): array`
+- Returns: `['tax_treatment' => string, 'tax_rate' => float, 'is_reverse_charge' => bool, 'note' => string]`
+
+**Decision tree:**
+| Country | Customer | VAT valid? | Treatment | Rate |
+|---------|----------|-----------|-----------|------|
+| Germany (`DE`) | any | any | `standard` | 19% |
+| EU member | B2B | yes | `reverse_charge` | 0% |
+| EU member | B2B/B2C | no/null | `standard` | 19% |
+| Non-EU | any | any | `exempt` | 0% |
+| Unknown/null | any | any | `exempt` | 0% (safe default) |
+
+- EU detection: `TaxService::isEu(string $code): bool` — covers all 27 EU states + `XI` (Northern Ireland)
+- Country normalisation: `TaxService::resolveCountryCode(string $country): ?string` — accepts ISO codes, English names, German names (e.g. `"Deutschland"` → `"DE"`)
+- `null` country → `exempt` (safe, avoids under-collection)
+- `null` customerType → treated as B2C (standard rate, safe default)
+- Wired into: `PaymentController::createSession()` (Stripe cart checkout) and `AdminQuoteRequestController::convertToOrder()` (quote conversion)
+- Tax fields stored on `orders`: `tax_treatment`, `tax_rate`, `tax_amount`, `is_reverse_charge`
+- Tax fields copied to `invoices` on creation: `subtotal_net`, `tax_treatment`, `tax_rate`, `tax_amount`, `is_reverse_charge`
+- Invoice PDF (`pdf/invoice.blade.php`) and order confirmation / quote-converted emails show full tax breakdown
 
 ### Order Security & Audit Logging
 
@@ -1047,7 +1137,7 @@ Conversion: `url(Storage::url($relativePath))` in controller formatters.
 | Adyen approval | Legacy/inactive until business account/API credentials are approved |
 | `GET /admin/products?trashed=only` | Restore works but no dedicated trashed product list endpoint |
 | Admin customer edit/deactivate | GET /admin/customers list exists; no PUT/DELETE per customer yet |
-| Quote-converted order invoice | Invoice not auto-created on conversion — admin must manually set `payment_status=paid` to trigger invoice later |
+| Quote-converted order invoice (bank transfer) | Invoice not auto-created on bank transfer conversion — created automatically on Stripe path via webhook; bank transfer requires admin to manually mark `payment_status=paid` |
 
 ---
 
@@ -1080,6 +1170,9 @@ MOLLIE_WEBHOOK_SECRET=
 
 # Order notifications — admin receives email here after every confirmed Stripe payment
 ORDER_EMAIL=support@okelcor.com
+
+# Quote notifications — admin receives email here after every quote request submission
+QUOTE_EMAIL=support@okelcor.com
 
 # ShipsGo container tracking
 SHIPSGO_API_KEY=
