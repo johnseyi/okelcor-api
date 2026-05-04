@@ -37,7 +37,7 @@ composer install --no-dev
 
 ---
 
-## Current Route Count: 120+
+## Current Route Count: 125+
 
 ### Customer Auth routes (public — no token)
 ```
@@ -83,7 +83,7 @@ DELETE /api/v1/auth/addresses/{id}
 }
 ```
 Status mapping (internal → customer-facing):
-`new` → `pending` | `reviewing` → `reviewed` | `quoted` → `approved` | `closed` → `rejected`
+`new` → `pending` | `reviewed` → `reviewed` | `quoted` → `approved` | `closed` → `rejected`
 
 #### GET /api/v1/auth/invoices — response shape
 ```json
@@ -171,6 +171,8 @@ Role hierarchy: `super_admin` > `admin` > `editor` | `order_manager`
 ```
 POST   /admin/login                         ← public, issues token
 
+GET    /admin/dashboard                     ← all roles — metrics endpoint
+
 POST   /admin/logout                        ← all roles
 GET    /admin/me                            ← all roles
 GET    /admin/profile                       ← all roles
@@ -246,6 +248,7 @@ GET    /admin/quote-requests
 GET    /admin/quote-requests/{id}
 PUT    /admin/quote-requests/{id}
 PATCH  /admin/quote-requests/{id}/status
+POST   /admin/quote-requests/{id}/convert-to-order   ← converts quoted quote to order
 
 GET    /admin/contact-messages
 GET    /admin/contact-messages/{id}
@@ -305,6 +308,135 @@ Frontend must update its auth store from this response to clear the "change pass
 - Sends `AdminWelcome` email to new user with temp password + login URL
 - Login URL comes from `FRONTEND_URL` env var
 - Plain text password is never stored or returned after the email is sent
+
+#### GET /admin/dashboard — response shape
+All roles. Excludes Stripe test sessions (`cs_test_%`). Currency fields in EUR, rounded to 2 decimals.
+```json
+{
+  "data": {
+    "revenue_today": 0.00,
+    "orders_today_total": 0,
+    "orders_today_paid": 0,
+    "conversion_rate": 0.0,
+    "average_order_value": 0.00,
+    "aov_period_label": "last 30 days",
+    "aov_paid_orders_count": 0,
+    "aov_stripe_orders_count": 0,
+    "aov_manual_orders_count": 0,
+    "new_customers_today": 0,
+    "pending_orders": 0,
+    "confirmed_revenue_month": 0.00,
+    "pending_revenue": 0.00,
+    "revenue_last_7_days": [
+      { "date": "2026-04-28", "revenue": 0.00 },
+      { "date": "2026-04-29", "revenue": 0.00 },
+      { "date": "2026-04-30", "revenue": 0.00 },
+      { "date": "2026-05-01", "revenue": 0.00 },
+      { "date": "2026-05-02", "revenue": 0.00 },
+      { "date": "2026-05-03", "revenue": 0.00 },
+      { "date": "2026-05-04", "revenue": 0.00 }
+    ]
+  }
+}
+```
+**Metric rules:**
+- `revenue_today` — `SUM(total)` where `DATE(created_at)=today AND payment_status='paid' AND status!='cancelled'`
+- `orders_today_total` — all orders today (test sessions excluded)
+- `orders_today_paid` — paid non-cancelled orders today
+- `conversion_rate` — `orders_today_paid / orders_today_total * 100`
+- `average_order_value` — `SUM/COUNT` of paid non-cancelled orders in last 30 days
+- `aov_manual_orders_count` — covers both Wix-imported and organic manual orders (`mode='manual'`)
+- `new_customers_today` — `email_verified_at IS NOT NULL AND imported_from_wix=0`
+- `pending_orders` — `status IN ('pending','confirmed')`
+- `confirmed_revenue_month` — paid, not cancelled/refunded, current month
+- `pending_revenue` — `payment_status='pending'` and not cancelled/failed
+- `revenue_last_7_days` — always 7 elements, zero-filled for days with no revenue
+- Controller: `AdminDashboardController@stats`
+
+#### POST /admin/quote-requests/{id}/convert-to-order
+Roles: `super_admin`, `admin`, `order_manager`
+
+Guards:
+- 422 if quote `status !== 'quoted'`
+- 409 if `quote.order_id` is already set (duplicate prevention)
+
+Request body:
+```json
+{
+  "delivery": {
+    "address": "Musterstraße 1",
+    "city": "Hamburg",
+    "postal_code": "20095",
+    "country": "Germany",
+    "phone": "+49 170 1234567"
+  },
+  "items": [
+    {
+      "name": "Michelin Pilot Sport 4",
+      "brand": "Michelin",
+      "size": "205/55R16",
+      "sku": null,
+      "unit_price": 89.50,
+      "quantity": 200
+    }
+  ],
+  "delivery_cost": 0,
+  "payment_method": "bank_transfer",
+  "admin_notes": "Converted from quote OKL-QR-XXXXXX."
+}
+```
+Response (201):
+```json
+{
+  "data": {
+    "order_ref": "OKL-XXXXXX",
+    "quote_ref": "OKL-QR-XXXXXX",
+    "status": "confirmed",
+    "payment_status": "pending",
+    "total": 17900.00
+  },
+  "message": "Quote converted to order successfully."
+}
+```
+- Creates order with `mode='manual'`, `status='confirmed'`, `payment_status='pending'`
+- `payment_method` defaults to `bank_transfer` if not provided
+- Sets `quote_requests.order_id` = new order ID to prevent re-conversion
+- Writes `OrderLog` entry with `action='status_changed'`, `new_value='confirmed'`, notes referencing quote ref
+- Invoice is NOT auto-created — admin manually sets `payment_status=paid` later, which should trigger invoice creation if needed
+- FormRequest: `ConvertQuoteToOrderRequest`
+
+#### GET /admin/quote-requests/{id} — detail response fields
+```json
+{
+  "data": {
+    "id": 1,
+    "ref_number": "OKL-QR-877755-MWM",
+    "full_name": "...",
+    "email": "...",
+    "phone": "...",
+    "tyre_category": "PCR",
+    "country": "Germany",
+    "quantity": "200",
+    "delivery_location": "Hamburg",
+    "notes": "...",
+    "status": "quoted",
+    "admin_notes": "...",
+    "created_at": "...",
+    "updated_at": "...",
+    "order_id": 42,
+    "order_ref": "OKL-XXXXXX",
+    "has_attachment": true,
+    "attachment_url": "https://api.okelcor.com/storage/quote-attachments/uuid.pdf",
+    "attachment_name": "Invoice-KDQWK0JJ-0001.pdf",
+    "attachment_original_name": "Invoice-KDQWK0JJ-0001.pdf",
+    "attachment_size": 116643,
+    "attachment_mime": "application/pdf"
+  }
+}
+```
+- `order_id` / `order_ref` — null until converted; non-null means already converted
+- `attachment_name` is an alias of `attachment_original_name` (both present for frontend compatibility)
+- List response also includes `order_id` and `has_attachment`
 
 ---
 
@@ -444,6 +576,7 @@ NOT through the Vercel proxy.
 |--------|------|-------|
 | `id` | bigint | PK |
 | `customer_id` | bigint FK | nullable, nullifies on customer delete — links to `customers` table |
+| `order_id` | bigint FK | nullable, nullifies on order delete — set when quote is converted to order |
 | `ref_number` | varchar(30) | unique |
 | `full_name` | varchar(200) | |
 | `company_name` | varchar(200) | nullable |
@@ -453,11 +586,13 @@ NOT through the Vercel proxy.
 | `tyre_category` | varchar(100) | |
 | `brand_preference` | varchar(200) | nullable |
 | `tyre_size` | varchar(100) | nullable |
-| `quantity` | varchar(100) | |
+| `quantity` | varchar(100) | free text — not an integer |
 | `notes` | text | |
-| `status` | enum | `new`, `reviewing`, `quoted`, `closed` — internal values |
+| `status` | enum | `new`, `reviewed`, `quoted`, `closed` — internal values |
 | `admin_notes` | text | nullable |
 | `ip_address` | varchar(45) | nullable, hidden from API |
+| `vat_number` | varchar(30) | nullable |
+| `vat_valid` | tinyint | nullable |
 | `attachment_path` | varchar(500) | nullable — relative path e.g. `quote-attachments/uuid.pdf` |
 | `attachment_original_name` | varchar(255) | nullable — original filename from customer |
 | `attachment_mime` | varchar(100) | nullable — MIME type of uploaded file |
@@ -467,7 +602,11 @@ NOT through the Vercel proxy.
 - Field: `attachment` (multipart/form-data), optional
 - Accepted types: `pdf`, `csv`, `xls`, `xlsx` — max 10 MB
 - Stored to `storage/app/public/quote-attachments/{uuid}.ext`
-- Admin list + detail responses include: `attachment_url` (absolute), `attachment_original_name`, `attachment_mime`, `attachment_size` — all null when no file attached
+- Admin list + detail responses include: `attachment_url` (absolute), `attachment_name`, `attachment_original_name`, `attachment_mime`, `attachment_size`, `has_attachment` — all null/false when no file attached
+
+**Quote status enum (corrected):**
+`new` → `reviewed` → `quoted` → `closed`
+Only quotes with `status='quoted'` can be converted to an order.
 
 ### `orders`
 | Column | Type | Notes |
@@ -500,6 +639,10 @@ NOT through the Vercel proxy.
 | `vat_valid` | tinyint | nullable |
 | `admin_notes` | text | nullable |
 | `ip_address` | varchar(45) | nullable, hidden from API |
+
+**Order mode values:**
+- `live` — Stripe checkout orders
+- `manual` — Wix imported orders, organic manual orders, and quote-converted orders
 
 ### `order_items`
 | Column | Type | Notes |
@@ -661,6 +804,11 @@ pending → confirmed (Stripe webhook) → processing (admin sets manually) → 
 **Debug log:**
 - `StripeService` logs `Stripe checkout success_url` with `success_url` and `order_ref` immediately before calling the Stripe API. Grep: `tail -n 50 storage/logs/laravel.log | grep "Stripe checkout success_url"`
 
+**Stripe test order identification:**
+- Test sessions have `payment_session_id LIKE 'cs_test_%'`
+- Dashboard metrics exclude them via `(payment_session_id IS NULL OR payment_session_id NOT LIKE 'cs_test_%')`
+- To delete test orders manually: use `orders:delete-specific` or `orders:cleanup-test-stripe` Artisan commands
+
 **Frontend return pages required:**
 - `/checkout/return?session_id=...&order_ref=OKL-...` — success page, show order ref, tell customer to check email
 - `/checkout/cancel` — payment cancelled page
@@ -675,6 +823,7 @@ pending → confirmed (Stripe webhook) → processing (admin sets manually) → 
 - `OrderConfirmation` mailable → sent to customer **after Stripe webhook confirms payment** (`checkout.session.completed`)
 - `OrderReceived` mailable → sent to `ORDER_EMAIL` env var **after Stripe webhook confirms payment**
 - Manual order flow (`POST /api/v1/orders`) sends `OrderReceived` to admin only — no customer email on manual orders
+- Quote-converted orders (`POST /admin/quote-requests/{id}/convert-to-order`) do NOT auto-send emails — admin contacts customer separately
 - Both views: `resources/views/emails/order-confirmation.blade.php` and `order-received.blade.php`
 - Templates are plain transactional HTML — white background, minimal color (3px orange top border only), no image assets
 - Contact email in templates: `support@okelcor.com`
@@ -696,6 +845,7 @@ pending → confirmed (Stripe webhook) → processing (admin sets manually) → 
 
 **Audit log (order_logs):**
 - Written by `AdminOrderController::writeLog()` — wrapped in try/catch so log failure never blocks primary action
+- Also written by `AdminQuoteRequestController::writeConversionLog()` when a quote is converted to order
 - `GET /admin/orders/{id}` response includes a `logs` array:
 ```json
 {
@@ -714,7 +864,7 @@ pending → confirmed (Stripe webhook) → processing (admin sets manually) → 
   ]
 }
 ```
-- Actions logged: `status_changed` (any status transition), `cancelled` (status set to cancelled), `tracking_updated` (any of carrier/tracking_number/container_number/estimated_delivery/eta), `deleted` (hard delete before records removed)
+- Actions logged: `status_changed` (any status transition including quote conversion), `cancelled` (status set to cancelled), `tracking_updated` (any of carrier/tracking_number/container_number/estimated_delivery/eta), `deleted` (hard delete before records removed)
 
 ### Container Tracking (Public)
 - `GET /api/v1/tracking/{container}` — auto-detects carrier by tracking number format
@@ -861,6 +1011,7 @@ Conversion: `url(Storage::url($relativePath))` in controller formatters.
 | `import:wix-customers {file}` | Import customers from Wix contacts CSV |
 | `import:wix-customers {file} --no-email` | Import customers without sending welcome emails |
 | `orders:cleanup-test-stripe --date=YYYY-MM-DD --email=EMAIL --dry-run` | Delete test Stripe orders by date + email (always dry-run first) |
+| `orders:delete-specific [--dry-run]` | Delete 9 specific hard-coded test order refs — dry-run first, then run without flag |
 | `invoices:generate-missing-pdfs [--dry-run] [--invoice=INV-YYYY-NNNN]` | Generate PDF files for invoices where `pdf_url IS NULL`; dry-run lists affected rows without writing |
 
 ---
@@ -873,6 +1024,7 @@ Conversion: `url(Storage::url($relativePath))` in controller formatters.
 | Adyen approval | Legacy/inactive until business account/API credentials are approved |
 | `GET /admin/products?trashed=only` | Restore works but no dedicated trashed product list endpoint |
 | Admin customer edit/deactivate | GET /admin/customers list exists; no PUT/DELETE per customer yet |
+| Quote-converted order invoice | Invoice not auto-created on conversion — admin must manually set `payment_status=paid` to trigger invoice later |
 
 ---
 
