@@ -55,4 +55,9 @@ class Order extends Model
     {
         return $this->hasMany(OrderLog::class)->orderBy('created_at');
     }
+
+    public function quoteRequest()
+    {
+        return $this->hasOne(QuoteRequest::class);
+    }
 }

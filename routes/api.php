@@ -290,6 +290,7 @@ Route::prefix('v1')->group(function () {
             Route::get('quote-requests/{id}', [AdminQuoteRequestController::class, 'show']);
             Route::put('quote-requests/{id}', [AdminQuoteRequestController::class, 'update']);
             Route::patch('quote-requests/{id}/status', [AdminQuoteRequestController::class, 'updateStatus']);
+            Route::post('quote-requests/{id}/convert-to-order', [AdminQuoteRequestController::class, 'convertToOrder']);
 
             // Contact messages
             Route::get('contact-messages', [AdminContactController::class, 'index']);
