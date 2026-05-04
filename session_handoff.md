@@ -1,5 +1,5 @@
 # Session Handoff — Okelcor API
-Last updated: 2026-05-04 (session 2)
+Last updated: 2026-05-04 (session 3)
 
 ## Project
 Laravel 13.2 / PHP 8.3 REST API for Okelcor B2B tyre wholesale.
@@ -37,7 +37,7 @@ composer install --no-dev
 
 ---
 
-## Current Route Count: 125+
+## Current Route Count: 151
 
 ### Customer Auth routes (public — no token)
 ```
@@ -1155,7 +1155,7 @@ Conversion: `url(Storage::url($relativePath))` in controller formatters.
 | `admin-login:{ip}` | 5 failed attempts/min | `POST /admin/login` — via RateLimiter in controller |
 | `search` | 30/min | `GET /search` |
 | `vat` | 10/min | `POST /vat/validate` |
-| `payments` | 20/min | `POST /payments/create-session` |
+| `payments` | 20/min | `POST /payments/create-session`, `POST /payments/tax-preview` |
 | `public-form` | 10/hour | `POST /contact`, `POST /orders`, `GET /orders`, `GET /orders/{ref}`, `POST /newsletter/subscribe` |
 | `quote-form` | 5/hour | `POST /quote-requests` |
 
