@@ -9,6 +9,7 @@ use App\Services\VatValidationService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Laravel\Sanctum\PersonalAccessToken;
 
@@ -44,6 +45,21 @@ class QuoteRequestController extends Controller
                 'vat_valid'   => $vatValid,
             ]
         ));
+
+        if ($request->hasFile('attachment')) {
+            $file     = $request->file('attachment');
+            $ext      = strtolower($file->getClientOriginalExtension());
+            $filename = Str::uuid() . '.' . $ext;
+
+            Storage::disk('public')->putFileAs('quote-attachments', $file, $filename);
+
+            $quote->update([
+                'attachment_path'          => 'quote-attachments/' . $filename,
+                'attachment_original_name' => $file->getClientOriginalName(),
+                'attachment_mime'          => $file->getMimeType(),
+                'attachment_size'          => $file->getSize(),
+            ]);
+        }
 
         // Notify admin (logged in local dev — configure QUOTE_EMAIL env var for prod)
         Log::info('New quote request', ['ref' => $refNumber, 'email' => $quote->email]);

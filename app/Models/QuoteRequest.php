@@ -29,6 +29,10 @@ class QuoteRequest extends Model
         'ip_address',
         'vat_number',
         'vat_valid',
+        'attachment_path',
+        'attachment_original_name',
+        'attachment_mime',
+        'attachment_size',
     ];
 
     protected $hidden = [

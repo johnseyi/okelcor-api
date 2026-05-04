@@ -7,6 +7,7 @@ use App\Models\Customer;
 use App\Models\QuoteRequest;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
 
 class AdminQuoteRequestController extends Controller
@@ -95,36 +96,45 @@ class AdminQuoteRequestController extends Controller
     private function formatList(QuoteRequest $r): array
     {
         return [
-            'id'            => $r->id,
-            'ref_number'    => $r->ref_number,
-            'full_name'     => $r->full_name,
-            'company_name'  => $r->company_name,
-            'email'         => $r->email,
-            'tyre_category' => $r->tyre_category,
-            'country'       => $r->country,
-            'quantity'      => $r->quantity,
-            'status'        => $r->status,
-            'created_at'    => $r->created_at?->toIso8601String(),
+            'id'                      => $r->id,
+            'ref_number'              => $r->ref_number,
+            'full_name'               => $r->full_name,
+            'company_name'            => $r->company_name,
+            'email'                   => $r->email,
+            'tyre_category'           => $r->tyre_category,
+            'country'                 => $r->country,
+            'quantity'                => $r->quantity,
+            'status'                  => $r->status,
+            'created_at'              => $r->created_at?->toIso8601String(),
+            'attachment_url'          => $r->attachment_path ? url(Storage::url($r->attachment_path)) : null,
+            'attachment_original_name' => $r->attachment_original_name,
+            'attachment_size'         => $r->attachment_size,
+            'attachment_mime'         => $r->attachment_mime,
         ];
     }
 
     private function formatDetail(QuoteRequest $r): array
     {
         return [
-            'id'                => $r->id,
-            'ref_number'        => $r->ref_number,
-            'full_name'         => $r->full_name,
-            'company_name'      => $r->company_name,
-            'email'             => $r->email,
-            'phone'             => $r->phone,
-            'tyre_category'     => $r->tyre_category,
-            'country'           => $r->country,
-            'quantity'          => $r->quantity,
-            'delivery_location' => $r->delivery_location,
-            'notes'             => $r->notes,
-            'status'            => $r->status,
-            'created_at'        => $r->created_at?->toIso8601String(),
-            'updated_at'        => $r->updated_at?->toIso8601String(),
+            'id'                      => $r->id,
+            'ref_number'              => $r->ref_number,
+            'full_name'               => $r->full_name,
+            'company_name'            => $r->company_name,
+            'email'                   => $r->email,
+            'phone'                   => $r->phone,
+            'tyre_category'           => $r->tyre_category,
+            'country'                 => $r->country,
+            'quantity'                => $r->quantity,
+            'delivery_location'       => $r->delivery_location,
+            'notes'                   => $r->notes,
+            'status'                  => $r->status,
+            'admin_notes'             => $r->admin_notes,
+            'created_at'              => $r->created_at?->toIso8601String(),
+            'updated_at'              => $r->updated_at?->toIso8601String(),
+            'attachment_url'          => $r->attachment_path ? url(Storage::url($r->attachment_path)) : null,
+            'attachment_original_name' => $r->attachment_original_name,
+            'attachment_size'         => $r->attachment_size,
+            'attachment_mime'         => $r->attachment_mime,
         ];
     }
 }

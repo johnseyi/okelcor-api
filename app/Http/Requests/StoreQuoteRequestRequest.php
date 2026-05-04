@@ -29,6 +29,7 @@ class StoreQuoteRequestRequest extends FormRequest
             'delivery_timeline' => ['nullable', 'string', 'max:100'],
             'notes'             => ['required', 'string'],
             'vat_number'        => ['nullable', 'string', 'min:4', 'max:20'],
+            'attachment'        => ['nullable', 'file', 'mimes:pdf,csv,xls,xlsx', 'max:10240'],
         ];
     }
 }
