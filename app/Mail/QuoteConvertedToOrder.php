@@ -28,7 +28,7 @@ class QuoteConvertedToOrder extends Mailable
 
     public function content(): Content
     {
-        $frontendUrl = rtrim(env('FRONTEND_URL', 'https://okelcor.com'), '/');
+        $frontendUrl = rtrim(config('app.frontend_url', 'https://okelcor.com'), '/');
 
         return new Content(
             view: 'emails.quote-converted-to-order',

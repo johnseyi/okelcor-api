@@ -182,17 +182,23 @@ class AdminQuoteRequestController extends Controller
             return $order;
         });
 
+        Log::info('Quote converted email sending', [
+            'quote_ref' => $quote->ref_number,
+            'order_ref' => $order->ref,
+            'to'        => $quote->email,
+        ]);
+
         try {
             Mail::to($quote->email)->send(new QuoteConvertedToOrder($order->load('items'), $quote));
-            Log::info('QuoteConvertedToOrder email sent', [
-                'order_ref' => $order->ref,
+            Log::info('Quote converted email sent', [
                 'quote_ref' => $quote->ref_number,
+                'order_ref' => $order->ref,
                 'to'        => $quote->email,
             ]);
         } catch (\Throwable $e) {
-            Log::warning('QuoteConvertedToOrder email failed', [
-                'order_ref' => $order->ref,
+            Log::error('Quote converted email failed', [
                 'quote_ref' => $quote->ref_number,
+                'order_ref' => $order->ref,
                 'to'        => $quote->email,
                 'error'     => $e->getMessage(),
             ]);
