@@ -1,5 +1,5 @@
 # Session Handoff — Okelcor API
-Last updated: 2026-05-02
+Last updated: 2026-05-04
 
 ## Project
 Laravel 13.2 / PHP 8.3 REST API for Okelcor B2B tyre wholesale.
@@ -58,6 +58,7 @@ PUT    /api/v1/auth/change-password
 
 GET    /api/v1/auth/quotes       ← customer's own quote requests
 GET    /api/v1/auth/invoices     ← customer's own invoices
+GET    /api/v1/invoices/{id}/download  ← download invoice PDF (auth.customer Bearer token)
 
 GET    /api/v1/auth/addresses
 POST   /api/v1/auth/addresses
@@ -95,13 +96,25 @@ Status mapping (internal → customer-facing):
       "due_at": "2024-04-30T00:00:00+00:00",
       "amount": 4850.00,
       "status": "paid",
-      "pdf_url": "https://api.okelcor.com/storage/invoices/INV-2024-0042.pdf",
+      "pdf_url": "https://api.okelcor.com/api/v1/invoices/1/download",
       "order_ref": "OKL-AB123"
     }
   ]
 }
 ```
 Status values: `paid` | `unpaid` | `overdue`
+
+#### GET /api/v1/invoices/{id}/download
+- Middleware: `auth.customer` — requires `Authorization: Bearer {customer_token}`
+- Verifies `invoice.customer_id === authenticated customer.id` — 403 if mismatch
+- Returns file as `Content-Disposition: attachment` with filename `INV-YYYY-NNNN.pdf`
+- Error responses (all JSON):
+  - 401 `"Unauthenticated."` — no/invalid token
+  - 403 `"You do not have access to this invoice."` — wrong customer
+  - 404 `"Invoice PDF is not available yet."` — `pdf_url` is null
+  - 404 `"Invoice PDF file was not found."` — file missing on disk
+- Controller: `InvoiceDownloadController@download`
+- All 403/404 cases write `Log::warning` with `invoice_id`, `invoice_customer_id`, `auth_customer_id`, `pdf_url`
 
 ### Public routes (no auth)
 ```
@@ -445,6 +458,16 @@ NOT through the Vercel proxy.
 | `status` | enum | `new`, `reviewing`, `quoted`, `closed` — internal values |
 | `admin_notes` | text | nullable |
 | `ip_address` | varchar(45) | nullable, hidden from API |
+| `attachment_path` | varchar(500) | nullable — relative path e.g. `quote-attachments/uuid.pdf` |
+| `attachment_original_name` | varchar(255) | nullable — original filename from customer |
+| `attachment_mime` | varchar(100) | nullable — MIME type of uploaded file |
+| `attachment_size` | unsigned int | nullable — file size in bytes |
+
+**Quote attachment upload:**
+- Field: `attachment` (multipart/form-data), optional
+- Accepted types: `pdf`, `csv`, `xls`, `xlsx` — max 10 MB
+- Stored to `storage/app/public/quote-attachments/{uuid}.ext`
+- Admin list + detail responses include: `attachment_url` (absolute), `attachment_original_name`, `attachment_mime`, `attachment_size` — all null when no file attached
 
 ### `orders`
 | Column | Type | Notes |
@@ -795,7 +818,8 @@ Allowed origins:
 | `brands.logo` | relative: `brands/uuid.png` | absolute URL (`logo_url`) |
 | `hero_slides.image_url` | relative: `hero/uuid.jpg` | absolute URL |
 | `hero_slides.video_url` | relative: `hero/uuid.mp4` | absolute URL |
-| `invoices.pdf_url` | relative: `invoices/INV-YYYY-NNNN.pdf` | absolute URL |
+| `invoices.pdf_url` | relative: `invoices/INV-YYYY-NNNN.pdf` | served via `/api/v1/invoices/{id}/download` (auth.customer) |
+| `quote_requests.attachment_path` | relative: `quote-attachments/uuid.ext` | absolute URL — admin only |
 
 Storage disk: `public` → `storage/app/public/` → symlinked to `public/storage/`
 Conversion: `url(Storage::url($relativePath))` in controller formatters.
