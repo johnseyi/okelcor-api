@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\ConvertQuoteToOrderRequest;
+use App\Mail\QuoteConvertedToOrder;
 use App\Models\Order;
 use App\Models\OrderItem;
 use App\Models\OrderLog;
@@ -12,6 +13,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
@@ -179,6 +181,22 @@ class AdminQuoteRequestController extends Controller
 
             return $order;
         });
+
+        try {
+            Mail::to($quote->email)->send(new QuoteConvertedToOrder($order->load('items'), $quote));
+            Log::info('QuoteConvertedToOrder email sent', [
+                'order_ref' => $order->ref,
+                'quote_ref' => $quote->ref_number,
+                'to'        => $quote->email,
+            ]);
+        } catch (\Throwable $e) {
+            Log::warning('QuoteConvertedToOrder email failed', [
+                'order_ref' => $order->ref,
+                'quote_ref' => $quote->ref_number,
+                'to'        => $quote->email,
+                'error'     => $e->getMessage(),
+            ]);
+        }
 
         return response()->json([
             'data' => [
