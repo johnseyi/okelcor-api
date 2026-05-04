@@ -360,7 +360,7 @@ Guards:
 - 422 if quote `status !== 'quoted'`
 - 409 if `quote.order_id` is already set (duplicate prevention)
 
-Request body:
+Request body (`delivery` object is optional — quote's stored address fields are used as fallback):
 ```json
 {
   "delivery": {
@@ -385,6 +385,14 @@ Request body:
   "admin_notes": "Converted from quote OKL-QR-XXXXXX."
 }
 ```
+
+**Delivery address fallback chain:**
+- `address` → `delivery.address` ?? `quote.delivery_address`
+- `city` → `delivery.city` ?? `quote.delivery_city`
+- `postal_code` → `delivery.postal_code` ?? `quote.delivery_postal_code`
+- `country` → `delivery.country` ?? `quote.country`
+- `customer_phone` → `delivery.phone` ?? `quote.phone`
+
 Response (201):
 ```json
 {
@@ -402,6 +410,7 @@ Response (201):
 - `payment_method` defaults to `bank_transfer` if not provided
 - Sets `quote_requests.order_id` = new order ID to prevent re-conversion
 - Writes `OrderLog` entry with `action='status_changed'`, `new_value='confirmed'`, notes referencing quote ref
+- Sends `QuoteConvertedToOrder` email to `quote.email` after transaction — failure is logged as warning and never rolls back the order
 - Invoice is NOT auto-created — admin manually sets `payment_status=paid` later, which should trigger invoice creation if needed
 - FormRequest: `ConvertQuoteToOrderRequest`
 
@@ -418,6 +427,9 @@ Response (201):
     "country": "Germany",
     "quantity": "200",
     "delivery_location": "Hamburg",
+    "delivery_address": "Musterstraße 1",
+    "delivery_city": "Hamburg",
+    "delivery_postal_code": "20095",
     "notes": "...",
     "status": "quoted",
     "admin_notes": "...",
@@ -435,8 +447,9 @@ Response (201):
 }
 ```
 - `order_id` / `order_ref` — null until converted; non-null means already converted
+- `delivery_address`, `delivery_city`, `delivery_postal_code` — nullable structured fields; supplement the free-text `delivery_location`
 - `attachment_name` is an alias of `attachment_original_name` (both present for frontend compatibility)
-- List response also includes `order_id` and `has_attachment`
+- List response also includes `order_id`, `has_attachment`, `delivery_address`, `delivery_city`, `delivery_postal_code`
 
 ---
 
@@ -825,9 +838,16 @@ pending → confirmed (Stripe webhook) → processing (admin sets manually) → 
 ### Order Confirmation Emails
 - `OrderConfirmation` mailable → sent to customer **after Stripe webhook confirms payment** (`checkout.session.completed`)
 - `OrderReceived` mailable → sent to `ORDER_EMAIL` env var **after Stripe webhook confirms payment**
+- `QuoteConvertedToOrder` mailable → sent to `quote.email` **immediately after quote-to-order conversion** succeeds; failure is caught and logged, never blocks the 201 response
 - Manual order flow (`POST /api/v1/orders`) sends `OrderReceived` to admin only — no customer email on manual orders
-- Quote-converted orders (`POST /admin/quote-requests/{id}/convert-to-order`) do NOT auto-send emails — admin contacts customer separately
-- Both views: `resources/views/emails/order-confirmation.blade.php` and `order-received.blade.php`
+- Views: `emails/order-confirmation.blade.php`, `emails/order-received.blade.php`, `emails/quote-converted-to-order.blade.php`
+
+**QuoteConvertedToOrder email content:**
+- Subject: `Your quote has been converted to an order — {order_ref}`
+- Shows quote_ref + order_ref, date, payment method, amber Pending badge
+- Full items table (name, size, qty, unit price, line total); delivery cost row if > 0; order total
+- "What happens next?" block — payment instructions → sourcing → shipping
+- Sent to: `quote.email`
 - Templates are plain transactional HTML — white background, minimal color (3px orange top border only), no image assets
 - Contact email in templates: `support@okelcor.com`
 - Shipment fields (carrier, tracking_number, container_number, ETA) shown conditionally when set
