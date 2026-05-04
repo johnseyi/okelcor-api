@@ -9,6 +9,7 @@ use App\Models\Order;
 use App\Models\OrderItem;
 use App\Models\OrderLog;
 use App\Models\QuoteRequest;
+use App\Services\StripeService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -182,14 +183,41 @@ class AdminQuoteRequestController extends Controller
             return $order;
         });
 
+        // Load items once — used by both Stripe session and email
+        $order->load('items');
+
+        // If payment is Stripe, create a Checkout Session for this order
+        $checkoutUrl = null;
+
+        if ($paymentMethod === 'stripe') {
+            try {
+                $stripeResult = app(StripeService::class)->createCheckoutSessionForOrder($order);
+                $order->update(['payment_session_id' => $stripeResult['checkout_session_id']]);
+                $checkoutUrl = $stripeResult['checkout_url'];
+
+                Log::info('Stripe session created for quote-converted order', [
+                    'order_ref'           => $order->ref,
+                    'quote_ref'           => $quote->ref_number,
+                    'checkout_session_id' => $stripeResult['checkout_session_id'],
+                ]);
+            } catch (\Throwable $e) {
+                Log::error('Stripe session creation failed for quote-converted order', [
+                    'order_ref' => $order->ref,
+                    'quote_ref' => $quote->ref_number,
+                    'error'     => $e->getMessage(),
+                ]);
+            }
+        }
+
         Log::info('Quote converted email sending', [
-            'quote_ref' => $quote->ref_number,
-            'order_ref' => $order->ref,
-            'to'        => $quote->email,
+            'quote_ref'   => $quote->ref_number,
+            'order_ref'   => $order->ref,
+            'to'          => $quote->email,
+            'has_stripe'  => $checkoutUrl !== null,
         ]);
 
         try {
-            Mail::to($quote->email)->send(new QuoteConvertedToOrder($order->load('items'), $quote));
+            Mail::to($quote->email)->send(new QuoteConvertedToOrder($order, $quote, $checkoutUrl));
             Log::info('Quote converted email sent', [
                 'quote_ref' => $quote->ref_number,
                 'order_ref' => $order->ref,
@@ -211,6 +239,7 @@ class AdminQuoteRequestController extends Controller
                 'status'         => $order->status,
                 'payment_status' => $order->payment_status,
                 'total'          => (float) $order->total,
+                'checkout_url'   => $checkoutUrl,
             ],
             'message' => 'Quote converted to order successfully.',
         ], 201);

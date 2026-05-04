@@ -17,6 +17,7 @@ class QuoteConvertedToOrder extends Mailable
     public function __construct(
         public readonly Order $order,
         public readonly QuoteRequest $quote,
+        public readonly ?string $checkoutUrl = null,
     ) {}
 
     public function envelope(): Envelope
@@ -33,9 +34,10 @@ class QuoteConvertedToOrder extends Mailable
         return new Content(
             view: 'emails.quote-converted-to-order',
             with: [
-                'order'      => $this->order,
-                'quote'      => $this->quote,
-                'ordersUrl'  => $frontendUrl . '/account/orders/' . $this->order->ref,
+                'order'       => $this->order,
+                'quote'       => $this->quote,
+                'ordersUrl'   => $frontendUrl . '/account/orders/' . $this->order->ref,
+                'checkoutUrl' => $this->checkoutUrl,
             ],
         );
     }

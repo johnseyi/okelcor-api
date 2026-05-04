@@ -94,7 +94,34 @@
                 </tfoot>
             </table>
 
-            <!-- Next steps -->
+            @if (!empty($checkoutUrl))
+            <!-- Stripe CTA -->
+            <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom:28px;">
+                <tr>
+                    <td align="center" style="padding:8px 0 20px 0;">
+                        <a href="{{ $checkoutUrl }}" style="display:inline-block;padding:14px 32px;background-color:#f4511e;color:#ffffff;font-family:Arial,Helvetica,sans-serif;font-size:15px;font-weight:700;text-decoration:none;border-radius:3px;letter-spacing:0.3px;">Pay securely with Stripe</a>
+                    </td>
+                </tr>
+                <tr>
+                    <td align="center">
+                        <p style="margin:0;font-family:Arial,Helvetica,sans-serif;font-size:12px;color:#9e9e9e;">This payment link expires in 24 hours. After payment, you will receive an order confirmation email.</p>
+                    </td>
+                </tr>
+            </table>
+
+            <!-- Stripe next steps -->
+            <table width="100%" cellpadding="0" cellspacing="0" border="0" style="border:1px solid #e0e0e0;background-color:#fafafa;margin-bottom:28px;">
+                <tr>
+                    <td style="padding:16px 20px;">
+                        <p style="margin:0 0 8px 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;font-weight:700;color:#171a20;">What happens next?</p>
+                        <p style="margin:0 0 6px 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#5c5e62;line-height:1.6;">1. Click the button above to pay securely via Stripe. Your card details are never shared with us.</p>
+                        <p style="margin:0 0 6px 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#5c5e62;line-height:1.6;">2. Once payment is confirmed we will begin sourcing and preparing your order.</p>
+                        <p style="margin:0;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#5c5e62;line-height:1.6;">3. You will receive shipping and tracking information as soon as your order dispatches.</p>
+                    </td>
+                </tr>
+            </table>
+            @else
+            <!-- Bank transfer next steps -->
             <table width="100%" cellpadding="0" cellspacing="0" border="0" style="border:1px solid #e0e0e0;background-color:#fafafa;margin-bottom:28px;">
                 <tr>
                     <td style="padding:16px 20px;">
@@ -105,6 +132,7 @@
                     </td>
                 </tr>
             </table>
+            @endif
 
         </td>
     </tr>

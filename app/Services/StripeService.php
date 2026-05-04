@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Models\Order;
 use Illuminate\Support\Facades\Log;
 use InvalidArgumentException;
 use RuntimeException;
@@ -56,6 +57,72 @@ class StripeService
         Log::info('Stripe checkout success_url', [
             'success_url' => $successUrl,
             'order_ref'   => $orderRef,
+        ]);
+
+        $session = $this->stripe->checkout->sessions->create($payload);
+
+        return [
+            'checkout_session_id' => $session->id,
+            'checkout_url'        => $session->url,
+        ];
+    }
+
+    public function createCheckoutSessionForOrder(Order $order): array
+    {
+        $frontendUrl = rtrim(config('app.frontend_url', 'https://okelcor.com'), '/');
+        $orderRef    = $order->ref;
+        $currency    = strtolower((string) config('services.stripe.currency', 'eur'));
+
+        $lineItems = [];
+
+        foreach ($order->items as $item) {
+            $name = trim($item->brand . ' ' . $item->name);
+            if ($item->size) {
+                $name .= ' — ' . $item->size;
+            }
+
+            $lineItems[] = [
+                'price_data' => [
+                    'currency'     => $currency,
+                    'product_data' => ['name' => $name],
+                    'unit_amount'  => (int) round((float) $item->unit_price * 100),
+                ],
+                'quantity' => max(1, (int) $item->quantity),
+            ];
+        }
+
+        if ((float) $order->delivery_cost > 0) {
+            $lineItems[] = [
+                'price_data' => [
+                    'currency'     => $currency,
+                    'product_data' => ['name' => 'Delivery'],
+                    'unit_amount'  => (int) round((float) $order->delivery_cost * 100),
+                ],
+                'quantity' => 1,
+            ];
+        }
+
+        if ($lineItems === []) {
+            throw new InvalidArgumentException('Stripe checkout requires at least one line item.');
+        }
+
+        $successUrl = $frontendUrl . '/checkout/return?session_id={CHECKOUT_SESSION_ID}&order_ref=' . urlencode($orderRef);
+        $cancelUrl  = $frontendUrl . '/account/orders/' . urlencode($orderRef);
+
+        $payload = [
+            'mode'                => 'payment',
+            'line_items'          => $lineItems,
+            'success_url'         => $successUrl,
+            'cancel_url'          => $cancelUrl,
+            'customer_email'      => $order->customer_email,
+            'client_reference_id' => $orderRef,
+            'metadata'            => ['order_ref' => $orderRef],
+            'payment_intent_data' => ['metadata' => ['order_ref' => $orderRef]],
+        ];
+
+        Log::info('Stripe quote-order checkout session creating', [
+            'order_ref'   => $orderRef,
+            'success_url' => $successUrl,
         ]);
 
         $session = $this->stripe->checkout->sessions->create($payload);
