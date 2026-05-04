@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\CustomerAuthController;
 use App\Http\Controllers\CustomerAddressController;
+use App\Http\Controllers\CustomerOrderController;
 use App\Http\Controllers\InvoiceDownloadController;
 use App\Http\Controllers\ArticleController;
 use App\Http\Controllers\ContainerTrackingController;
@@ -76,6 +77,9 @@ Route::prefix('v1')->group(function () {
         Route::post('addresses', [CustomerAddressController::class, 'store']);
         Route::put('addresses/{id}', [CustomerAddressController::class, 'update']);
         Route::delete('addresses/{id}', [CustomerAddressController::class, 'destroy']);
+
+        // Orders — customer pay-now
+        Route::post('orders/{ref}/checkout', [CustomerOrderController::class, 'checkout']);
     });
 
     // Invoice download — protected by customer Bearer token
