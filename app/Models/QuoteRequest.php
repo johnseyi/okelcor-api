@@ -34,6 +34,9 @@ class QuoteRequest extends Model
         'attachment_original_name',
         'attachment_mime',
         'attachment_size',
+        'delivery_address',
+        'delivery_city',
+        'delivery_postal_code',
     ];
 
     protected $hidden = [

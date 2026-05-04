@@ -118,10 +118,10 @@ class AdminQuoteRequestController extends Controller
             ], 409);
         }
 
-        $validated    = $request->validated();
-        $delivery     = $validated['delivery'];
-        $items        = $validated['items'];
-        $deliveryCost = (float) ($validated['delivery_cost'] ?? 0);
+        $validated     = $request->validated();
+        $delivery      = $validated['delivery'] ?? [];
+        $items         = $validated['items'];
+        $deliveryCost  = (float) ($validated['delivery_cost'] ?? 0);
         $paymentMethod = $validated['payment_method'] ?? 'bank_transfer';
 
         $order = DB::transaction(function () use ($quote, $delivery, $items, $deliveryCost, $paymentMethod, $validated, $request) {
@@ -134,9 +134,9 @@ class AdminQuoteRequestController extends Controller
                 'customer_name'  => $quote->full_name,
                 'customer_email' => $quote->email,
                 'customer_phone' => $delivery['phone'] ?? $quote->phone,
-                'address'        => $delivery['address'],
-                'city'           => $delivery['city'],
-                'postal_code'    => $delivery['postal_code'],
+                'address'        => $delivery['address'] ?? $quote->delivery_address,
+                'city'           => $delivery['city'] ?? $quote->delivery_city,
+                'postal_code'    => $delivery['postal_code'] ?? $quote->delivery_postal_code,
                 'country'        => $delivery['country'] ?? $quote->country,
                 'payment_method' => $paymentMethod,
                 'subtotal'       => 0,  // updated below after items
@@ -245,6 +245,9 @@ class AdminQuoteRequestController extends Controller
             'tyre_category'            => $r->tyre_category,
             'country'                  => $r->country,
             'quantity'                 => $r->quantity,
+            'delivery_address'         => $r->delivery_address,
+            'delivery_city'            => $r->delivery_city,
+            'delivery_postal_code'     => $r->delivery_postal_code,
             'status'                   => $r->status,
             'created_at'               => $r->created_at?->toIso8601String(),
             'order_id'                 => $r->order_id,
@@ -272,6 +275,9 @@ class AdminQuoteRequestController extends Controller
             'country'                  => $r->country,
             'quantity'                 => $r->quantity,
             'delivery_location'        => $r->delivery_location,
+            'delivery_address'         => $r->delivery_address,
+            'delivery_city'            => $r->delivery_city,
+            'delivery_postal_code'     => $r->delivery_postal_code,
             'notes'                    => $r->notes,
             'status'                   => $r->status,
             'admin_notes'              => $r->admin_notes,

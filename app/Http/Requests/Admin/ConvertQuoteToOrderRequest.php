@@ -14,10 +14,10 @@ class ConvertQuoteToOrderRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'delivery'              => ['required', 'array'],
-            'delivery.address'      => ['required', 'string', 'max:300'],
-            'delivery.city'         => ['required', 'string', 'max:100'],
-            'delivery.postal_code'  => ['required', 'string', 'max:20'],
+            'delivery'              => ['nullable', 'array'],
+            'delivery.address'      => ['nullable', 'string', 'max:300'],
+            'delivery.city'         => ['nullable', 'string', 'max:100'],
+            'delivery.postal_code'  => ['nullable', 'string', 'max:20'],
             'delivery.country'      => ['nullable', 'string', 'max:100'],
             'delivery.phone'        => ['nullable', 'string', 'max:50'],
 
