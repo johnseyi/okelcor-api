@@ -3,12 +3,15 @@
 namespace App\Http\Controllers;
 
 use App\Http\Requests\StoreQuoteRequestRequest;
+use App\Mail\QuoteRequestAcknowledgement;
+use App\Mail\QuoteRequestReceived;
 use App\Models\Customer;
 use App\Models\QuoteRequest;
 use App\Services\VatValidationService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Laravel\Sanctum\PersonalAccessToken;
@@ -61,8 +64,26 @@ class QuoteRequestController extends Controller
             ]);
         }
 
-        // Notify admin (logged in local dev — configure QUOTE_EMAIL env var for prod)
-        Log::info('New quote request', ['ref' => $refNumber, 'email' => $quote->email]);
+        // Admin notification
+        $quoteEmail = config('mail.quote_email');
+        if ($quoteEmail) {
+            try {
+                Log::info('Sending quote request admin notification', ['ref' => $refNumber, 'to' => $quoteEmail]);
+                Mail::to($quoteEmail)->send(new QuoteRequestReceived($quote));
+                Log::info('Quote request admin notification sent', ['ref' => $refNumber]);
+            } catch (\Throwable $e) {
+                Log::error('Quote request admin notification failed', ['ref' => $refNumber, 'error' => $e->getMessage()]);
+            }
+        }
+
+        // Customer acknowledgement
+        try {
+            Log::info('Sending quote request acknowledgement', ['ref' => $refNumber, 'to' => $quote->email]);
+            Mail::to($quote->email)->send(new QuoteRequestAcknowledgement($quote));
+            Log::info('Quote request acknowledgement sent', ['ref' => $refNumber]);
+        } catch (\Throwable $e) {
+            Log::error('Quote request acknowledgement failed', ['ref' => $refNumber, 'error' => $e->getMessage()]);
+        }
 
         return response()->json([
             'data' => [

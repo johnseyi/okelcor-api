@@ -116,4 +116,8 @@ return [
         'name' => env('MAIL_FROM_NAME', env('APP_NAME', 'Laravel')),
     ],
 
+    'quote_email' => env('QUOTE_EMAIL'),
+
+    'order_email' => env('ORDER_EMAIL'),
+
 ];

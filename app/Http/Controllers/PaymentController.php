@@ -308,7 +308,7 @@ class PaymentController extends Controller
             ]);
         }
 
-        $adminEmail = env('ORDER_EMAIL');
+        $adminEmail = config('mail.order_email');
         if ($adminEmail) {
             try {
                 Mail::to($adminEmail)->send(new OrderReceived($order));
