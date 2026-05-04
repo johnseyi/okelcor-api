@@ -155,6 +155,7 @@ GET    /api/v1/settings
 GET    /api/v1/search
 POST   /api/v1/vat/validate
 POST   /api/v1/payments/create-session
+POST   /api/v1/payments/tax-preview        ← tax calculation preview (no order/session created)
 POST   /api/v1/payments/webhook            ← Stripe webhook handler
 GET    /api/v1/tracking/{container}        ← auto-detects DHL vs sea freight
 GET    /api/v1/orders                      ← requires ?email=
@@ -817,6 +818,52 @@ Locales ENUM: `en`, `de`, `fr`, `es`
 
 **Mailables:**
 - `AdminWelcome` → view: `emails.admin-welcome`
+
+### POST /api/v1/payments/tax-preview
+Public endpoint (no auth required; authenticated customer token is optional).
+Returns the tax breakdown that will be applied at checkout — no order or Stripe session is created.
+
+Rate limit: `throttle:payments` (20/min). Controller: `PaymentController@taxPreview`.
+
+Request:
+```json
+{
+  "items": [{ "price": 29.40, "quantity": 1 }],
+  "delivery_cost": 0,
+  "country": "Germany",
+  "vat_number": "DE118716043",
+  "vat_valid": true,
+  "customer_type": "b2b"
+}
+```
+
+VAT validity resolution order:
+1. `vat_valid` boolean provided → use it (skip VIES call)
+2. `vat_number` provided, no `vat_valid` → call `VatValidationService::validate()`
+3. Neither → `null` (B2C safe default)
+
+Customer type resolution:
+- Authenticated `auth.customer` Bearer token → `customer.customer_type` wins
+- Else `request.customer_type`
+- Else `null` (treated as B2C)
+
+Response (200):
+```json
+{
+  "data": {
+    "subtotal_net": 29.40,
+    "delivery_cost": 0.00,
+    "tax_rate": 19.00,
+    "tax_amount": 5.59,
+    "tax_treatment": "standard",
+    "is_reverse_charge": false,
+    "total": 34.99,
+    "note": null
+  }
+}
+```
+
+---
 
 ### Stripe Checkout Payment Gateway
 - Active gateway: Stripe Checkout.
