@@ -593,6 +593,9 @@ NOT through the Vercel proxy.
 | `ip_address` | varchar(45) | nullable, hidden from API |
 | `vat_number` | varchar(30) | nullable |
 | `vat_valid` | tinyint | nullable |
+| `delivery_address` | varchar(300) | nullable — structured delivery street address |
+| `delivery_city` | varchar(100) | nullable — structured delivery city |
+| `delivery_postal_code` | varchar(30) | nullable — structured delivery postal code |
 | `attachment_path` | varchar(500) | nullable — relative path e.g. `quote-attachments/uuid.pdf` |
 | `attachment_original_name` | varchar(255) | nullable — original filename from customer |
 | `attachment_mime` | varchar(100) | nullable — MIME type of uploaded file |
