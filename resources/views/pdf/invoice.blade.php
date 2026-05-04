@@ -226,14 +226,28 @@
 
     <!-- Totals -->
     <table class="totals-table">
-        @if ((float) $order->delivery_cost > 0)
         <tr>
-            <td class="label">Subtotal</td>
+            <td class="label">Subtotal (net)</td>
             <td class="amount">&euro;{{ number_format((float) $order->subtotal, 2) }}</td>
         </tr>
+        @if ((float) $order->delivery_cost > 0)
         <tr>
             <td class="label">Delivery</td>
             <td class="amount">&euro;{{ number_format((float) $order->delivery_cost, 2) }}</td>
+        </tr>
+        @endif
+        @if ($order->tax_treatment !== null)
+        <tr>
+            @if ((float) $order->tax_amount > 0)
+            <td class="label">VAT ({{ number_format((float) $order->tax_rate, 0) }}%)</td>
+            <td class="amount">&euro;{{ number_format((float) $order->tax_amount, 2) }}</td>
+            @elseif ($order->is_reverse_charge)
+            <td class="label">VAT &mdash; reverse charge (0%)</td>
+            <td class="amount">&euro;0.00</td>
+            @else
+            <td class="label">VAT &mdash; exempt (0%)</td>
+            <td class="amount">&euro;0.00</td>
+            @endif
         </tr>
         @endif
         <tr class="total-row">
@@ -241,6 +255,16 @@
             <td class="amount">&euro;{{ number_format((float) $order->total, 2) }}</td>
         </tr>
     </table>
+
+    @if ($order->is_reverse_charge)
+    <p style="font-size:11px;color:#5c5e62;margin-bottom:24px;line-height:1.5;">
+        Reverse charge &mdash; VAT liability transfers to the recipient.
+    </p>
+    @elseif ($order->tax_treatment === 'exempt')
+    <p style="font-size:11px;color:#5c5e62;margin-bottom:24px;line-height:1.5;">
+        Export outside the EU &mdash; VAT exempt.
+    </p>
+    @endif
 
     <!-- Footer -->
     <div class="footer">

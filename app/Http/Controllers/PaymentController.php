@@ -385,14 +385,19 @@ class PaymentController extends Controller
                     $invoiceNumber = $prefix . str_pad($sequence, 4, '0', STR_PAD_LEFT);
 
                     return Invoice::create([
-                        'customer_id'    => $customer->id,
-                        'invoice_number' => $invoiceNumber,
-                        'issued_at'      => now(),
-                        'due_at'         => null,
-                        'amount'         => $order->total,
-                        'status'         => 'paid',
-                        'pdf_url'        => null,
-                        'order_ref'      => $order->ref,
+                        'customer_id'       => $customer->id,
+                        'invoice_number'    => $invoiceNumber,
+                        'issued_at'         => now(),
+                        'due_at'            => null,
+                        'amount'            => $order->total,
+                        'status'            => 'paid',
+                        'pdf_url'           => null,
+                        'order_ref'         => $order->ref,
+                        'subtotal_net'      => (float) $order->subtotal + (float) $order->delivery_cost,
+                        'tax_treatment'     => $order->tax_treatment,
+                        'tax_rate'          => $order->tax_rate,
+                        'tax_amount'        => $order->tax_amount,
+                        'is_reverse_charge' => $order->is_reverse_charge,
                     ]);
                 });
 
