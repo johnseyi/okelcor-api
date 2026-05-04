@@ -41,6 +41,7 @@ use App\Http\Controllers\FetEngineController;
 use App\Http\Controllers\PromotionController;
 use App\Http\Controllers\Admin\AdminFetEngineController;
 use App\Http\Controllers\Admin\AdminPromotionController;
+use App\Http\Controllers\Admin\AdminDashboardController;
 use Illuminate\Support\Facades\Route;
 
 Route::prefix('v1')->group(function () {
@@ -175,6 +176,9 @@ Route::prefix('v1')->group(function () {
     //   order_manager — operations only (orders, quote requests, contacts, newsletter)
     // -------------------------------------------------------------------------
     Route::middleware('auth:sanctum')->prefix('admin')->group(function () {
+
+        // Dashboard — all authenticated admin roles
+        Route::get('dashboard', [AdminDashboardController::class, 'stats']);
 
         // Auth — all authenticated admin users
         Route::post('logout', [AuthController::class, 'logout']);
