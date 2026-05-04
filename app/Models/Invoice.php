@@ -16,12 +16,21 @@ class Invoice extends Model
         'status',
         'pdf_url',
         'order_ref',
+        'subtotal_net',
+        'tax_treatment',
+        'tax_rate',
+        'tax_amount',
+        'is_reverse_charge',
     ];
 
     protected $casts = [
-        'issued_at' => 'datetime',
-        'due_at'    => 'datetime',
-        'amount'    => 'decimal:2',
+        'issued_at'         => 'datetime',
+        'due_at'            => 'datetime',
+        'amount'            => 'decimal:2',
+        'subtotal_net'      => 'decimal:2',
+        'tax_rate'          => 'decimal:2',
+        'tax_amount'        => 'decimal:2',
+        'is_reverse_charge' => 'boolean',
     ];
 
     public function customer(): BelongsTo

@@ -26,6 +26,10 @@ class Order extends Model
         'ip_address',
         'vat_number',
         'vat_valid',
+        'tax_treatment',
+        'tax_rate',
+        'tax_amount',
+        'is_reverse_charge',
         'payment_session_id',
         'carrier',
         'carrier_type',
@@ -41,9 +45,12 @@ class Order extends Model
     ];
 
     protected $casts = [
-        'subtotal'      => 'decimal:2',
-        'delivery_cost' => 'decimal:2',
-        'total'         => 'decimal:2',
+        'subtotal'          => 'decimal:2',
+        'delivery_cost'     => 'decimal:2',
+        'total'             => 'decimal:2',
+        'tax_rate'          => 'decimal:2',
+        'tax_amount'        => 'decimal:2',
+        'is_reverse_charge' => 'boolean',
     ];
 
     public function items()
