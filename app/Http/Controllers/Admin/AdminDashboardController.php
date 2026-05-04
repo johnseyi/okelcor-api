@@ -53,17 +53,29 @@ class AdminDashboardController extends Controller
 
         // ------------------------------------------------------------------
         // Average order value — last 30 days, paid non-cancelled
+        // Breakdown: Stripe live orders vs manual/imported orders
+        // mode='manual' covers both Wix-imported and organic manual orders;
+        // no separate imported_from column exists on orders table.
         // ------------------------------------------------------------------
         $aov = Order::where('payment_status', 'paid')
             ->where('status', '!=', 'cancelled')
             ->where('created_at', '>=', $thirtyDaysAgo)
             ->where(fn ($q) => $q->whereNull('payment_session_id')
                 ->orWhere('payment_session_id', 'not like', 'cs_test_%'))
-            ->selectRaw('SUM(total) as total_sum, COUNT(*) as total_count')
+            ->selectRaw("
+                SUM(total)                                            AS total_sum,
+                COUNT(*)                                              AS total_count,
+                SUM(CASE WHEN payment_method = 'stripe' THEN 1 ELSE 0 END) AS stripe_count,
+                SUM(CASE WHEN mode = 'manual'            THEN 1 ELSE 0 END) AS manual_count
+            ")
             ->first();
 
-        $averageOrderValue = ($aov && $aov->total_count > 0)
-            ? round((float) $aov->total_sum / $aov->total_count, 2)
+        $aovTotalCount  = (int) ($aov->total_count  ?? 0);
+        $aovStripeCount = (int) ($aov->stripe_count ?? 0);
+        $aovManualCount = (int) ($aov->manual_count ?? 0);
+
+        $averageOrderValue = ($aovTotalCount > 0)
+            ? round((float) $aov->total_sum / $aovTotalCount, 2)
             : 0.0;
 
         // ------------------------------------------------------------------
@@ -134,6 +146,10 @@ class AdminDashboardController extends Controller
                 'orders_today_paid'       => $ordersTodayPaid,
                 'conversion_rate'         => $conversionRate,
                 'average_order_value'     => $averageOrderValue,
+                'aov_period_label'        => 'last 30 days',
+                'aov_paid_orders_count'   => $aovTotalCount,
+                'aov_stripe_orders_count' => $aovStripeCount,
+                'aov_manual_orders_count' => $aovManualCount,
                 'new_customers_today'     => $newCustomersToday,
                 'pending_orders'          => $pendingOrders,
                 'confirmed_revenue_month' => round($confirmedRevenueMonth, 2),
