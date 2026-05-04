@@ -138,6 +138,7 @@ Route::prefix('v1')->group(function () {
     // Payments — rate limited: 20/min
     Route::middleware('throttle:payments')->group(function () {
         Route::post('payments/create-session', [PaymentController::class, 'createSession']);
+        Route::post('payments/tax-preview', [PaymentController::class, 'taxPreview']);
     });
 
     // Stripe webhook — no rate limit, excluded from ForceJsonResponse

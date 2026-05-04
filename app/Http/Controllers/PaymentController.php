@@ -202,6 +202,63 @@ class PaymentController extends Controller
     }
 
     /**
+     * POST /api/v1/payments/tax-preview
+     *
+     * Returns the tax calculation that will be applied when the customer
+     * proceeds to Stripe checkout — without creating any order or session.
+     */
+    public function taxPreview(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'items'            => ['required', 'array', 'min:1'],
+            'items.*.price'    => ['required', 'numeric', 'min:0'],
+            'items.*.quantity' => ['required', 'integer', 'min:1'],
+            'delivery_cost'    => ['sometimes', 'nullable', 'numeric', 'min:0'],
+            'country'          => ['sometimes', 'nullable', 'string', 'max:100'],
+            'vat_number'       => ['sometimes', 'nullable', 'string', 'max:30'],
+            'vat_valid'        => ['sometimes', 'nullable', 'boolean'],
+            'customer_type'    => ['sometimes', 'nullable', 'string', 'in:b2b,b2c'],
+        ]);
+
+        $subtotalNet  = collect($validated['items'])->sum(fn ($i) => (float) $i['price'] * (int) $i['quantity']);
+        $deliveryCost = (float) ($validated['delivery_cost'] ?? 0);
+
+        // Determine VAT validity — explicit boolean wins; otherwise call VIES if number given
+        $vatValidInput = $validated['vat_valid'] ?? null;
+        $vatNumber     = $validated['vat_number'] ?? null;
+
+        if ($vatValidInput !== null) {
+            $vatValid = (bool) $vatValidInput;
+        } elseif ($vatNumber) {
+            $result   = $this->vatService->validate($vatNumber);
+            $vatValid = $result['valid'] ?? false;
+        } else {
+            $vatValid = null;
+        }
+
+        // Authenticated customer's customer_type takes precedence over the request field
+        $customerType = $this->resolveCustomerType($request) ?? ($validated['customer_type'] ?? null);
+
+        $tax         = $this->taxService->calculate($validated['country'] ?? null, $vatValid, $customerType);
+        $taxableBase = $subtotalNet + $deliveryCost;
+        $taxAmount   = round($taxableBase * $tax['tax_rate'] / 100, 2);
+        $total       = round($taxableBase + $taxAmount, 2);
+
+        return response()->json([
+            'data' => [
+                'subtotal_net'      => round($subtotalNet, 2),
+                'delivery_cost'     => round($deliveryCost, 2),
+                'tax_rate'          => $tax['tax_rate'],
+                'tax_amount'        => $taxAmount,
+                'tax_treatment'     => $tax['tax_treatment'],
+                'is_reverse_charge' => $tax['is_reverse_charge'],
+                'total'             => $total,
+                'note'              => $tax['note'],
+            ],
+        ]);
+    }
+
+    /**
      * POST /api/v1/payments/webhook
      *
      * Handles Stripe webhook notifications for Checkout payments.
