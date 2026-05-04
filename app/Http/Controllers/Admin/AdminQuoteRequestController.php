@@ -10,6 +10,7 @@ use App\Models\OrderItem;
 use App\Models\OrderLog;
 use App\Models\QuoteRequest;
 use App\Services\StripeService;
+use App\Services\TaxService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -127,7 +128,13 @@ class AdminQuoteRequestController extends Controller
         $deliveryCost  = (float) ($validated['delivery_cost'] ?? 0);
         $paymentMethod = $validated['payment_method'] ?? 'bank_transfer';
 
-        $order = DB::transaction(function () use ($quote, $delivery, $items, $deliveryCost, $paymentMethod, $validated, $request) {
+        // Calculate tax before transaction — all inputs are known at this point
+        $country      = $delivery['country'] ?? $quote->country;
+        $vatValid     = $quote->vat_valid !== null ? (bool) $quote->vat_valid : null;
+        $customerType = $this->inferCustomerType($quote);
+        $tax          = app(TaxService::class)->calculate($country, $vatValid, $customerType);
+
+        $order = DB::transaction(function () use ($quote, $delivery, $items, $deliveryCost, $paymentMethod, $validated, $request, $tax) {
             $subtotal = 0.0;
 
             $ref = $this->generateRef();
@@ -171,8 +178,18 @@ class AdminQuoteRequestController extends Controller
                 ]);
             }
 
-            $total = $subtotal + $deliveryCost;
-            $order->update(['subtotal' => $subtotal, 'total' => $total]);
+            $taxableBase = $subtotal + $deliveryCost;
+            $taxAmount   = round($taxableBase * $tax['tax_rate'] / 100, 2);
+            $total       = $taxableBase + $taxAmount;
+
+            $order->update([
+                'subtotal'          => $subtotal,
+                'total'             => $total,
+                'tax_treatment'     => $tax['tax_treatment'],
+                'tax_rate'          => $tax['tax_rate'],
+                'tax_amount'        => $taxAmount,
+                'is_reverse_charge' => $tax['is_reverse_charge'],
+            ]);
 
             // Link quote to order
             $quote->update(['order_id' => $order->id]);
@@ -248,6 +265,22 @@ class AdminQuoteRequestController extends Controller
     // -------------------------------------------------------------------------
     // Helpers
     // -------------------------------------------------------------------------
+
+    private function inferCustomerType(QuoteRequest $quote): ?string
+    {
+        // Company name on the quote is the strongest signal for B2B
+        if ($quote->company_name) {
+            return 'b2b';
+        }
+
+        // Fall back to the linked customer account's type if one exists
+        if ($quote->customer_id) {
+            $quote->loadMissing('customer');
+            return $quote->customer?->customer_type;
+        }
+
+        return null;
+    }
 
     private function generateRef(): string
     {

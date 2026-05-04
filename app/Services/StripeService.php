@@ -102,6 +102,21 @@ class StripeService
             ];
         }
 
+        // Add VAT as a separate line item so Stripe collects the correct gross total.
+        // Only applies when tax_amount > 0 (standard rate). Reverse charge and exempt
+        // orders have tax_amount = 0 so no line item is added.
+        if ((float) $order->tax_amount > 0) {
+            $rateLabel   = number_format((float) $order->tax_rate, 0);
+            $lineItems[] = [
+                'price_data' => [
+                    'currency'     => $currency,
+                    'product_data' => ['name' => "VAT ({$rateLabel}%)"],
+                    'unit_amount'  => (int) round((float) $order->tax_amount * 100),
+                ],
+                'quantity' => 1,
+            ];
+        }
+
         if ($lineItems === []) {
             throw new InvalidArgumentException('Stripe checkout requires at least one line item.');
         }

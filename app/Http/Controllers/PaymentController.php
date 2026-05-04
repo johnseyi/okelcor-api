@@ -10,6 +10,7 @@ use App\Models\Order;
 use App\Models\OrderItem;
 use App\Models\Product;
 use App\Services\StripeService;
+use App\Services\TaxService;
 use App\Services\VatValidationService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -17,6 +18,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Str;
+use Laravel\Sanctum\PersonalAccessToken;
 use Stripe\Exception\SignatureVerificationException;
 use Stripe\Webhook;
 use UnexpectedValueException;
@@ -26,6 +28,7 @@ class PaymentController extends Controller
     public function __construct(
         private StripeService $stripeService,
         private VatValidationService $vatService,
+        private TaxService $taxService,
     ) {}
 
     /**
@@ -107,31 +110,43 @@ class PaymentController extends Controller
             ];
         }
 
+        // Calculate tax before the transaction — subtotal is known, no DB needed
+        $customerType = $this->resolveCustomerType($request);
+        $vatValidBool = $vatValid !== null ? (bool) $vatValid : null;
+        $tax          = $this->taxService->calculate($delivery['country'], $vatValidBool, $customerType);
+        $taxAmount    = round($subtotal * $tax['tax_rate'] / 100, 2);
+        $total        = $subtotal + $taxAmount; // delivery_cost is always 0 on Stripe checkout
+
         $ref = $this->generateRef();
 
         try {
             $order = DB::transaction(function () use (
-                $delivery, $lineItems, $subtotal, $ref, $request, $vatNumber, $vatValid
+                $delivery, $lineItems, $subtotal, $total, $ref, $request,
+                $vatNumber, $vatValid, $tax, $taxAmount
             ) {
                 $order = Order::create([
-                    'ref'            => $ref,
-                    'customer_name'  => $delivery['name'],
-                    'customer_email' => $delivery['email'],
-                    'customer_phone' => $delivery['phone'] ?? null,
-                    'address'        => $delivery['address'],
-                    'city'           => $delivery['city'],
-                    'postal_code'    => $delivery['postalCode'],
-                    'country'        => $delivery['country'],
-                    'payment_method' => 'stripe',
-                    'subtotal'       => $subtotal,
-                    'delivery_cost'  => 0.00,
-                    'total'          => $subtotal,
-                    'status'         => 'pending',
-                    'payment_status' => 'pending',
-                    'mode'           => 'live',
-                    'ip_address'     => $request->ip(),
-                    'vat_number'     => $vatNumber,
-                    'vat_valid'      => $vatValid,
+                    'ref'               => $ref,
+                    'customer_name'     => $delivery['name'],
+                    'customer_email'    => $delivery['email'],
+                    'customer_phone'    => $delivery['phone'] ?? null,
+                    'address'           => $delivery['address'],
+                    'city'              => $delivery['city'],
+                    'postal_code'       => $delivery['postalCode'],
+                    'country'           => $delivery['country'],
+                    'payment_method'    => 'stripe',
+                    'subtotal'          => $subtotal,
+                    'delivery_cost'     => 0.00,
+                    'total'             => $total,
+                    'status'            => 'pending',
+                    'payment_status'    => 'pending',
+                    'mode'              => 'live',
+                    'ip_address'        => $request->ip(),
+                    'vat_number'        => $vatNumber,
+                    'vat_valid'         => $vatValid,
+                    'tax_treatment'     => $tax['tax_treatment'],
+                    'tax_rate'          => $tax['tax_rate'],
+                    'tax_amount'        => $taxAmount,
+                    'is_reverse_charge' => $tax['is_reverse_charge'],
                 ]);
 
                 foreach ($lineItems as $line) {
@@ -141,13 +156,24 @@ class PaymentController extends Controller
                 return $order;
             });
 
-            $currency = strtolower((string) config('services.stripe.currency', 'eur'));
+            // Build Stripe line items: net product items + VAT as separate line (standard only)
+            $currency    = strtolower((string) config('services.stripe.currency', 'eur'));
+            $stripeItems = $lineItems;
+
+            if ($taxAmount > 0) {
+                $stripeItems[] = [
+                    'name'       => 'VAT (' . number_format($tax['tax_rate'], 0) . '%)',
+                    'unit_price' => $taxAmount,
+                    'quantity'   => 1,
+                ];
+            }
+
             $result = $this->stripeService->createCheckoutSession([
                 'ref'            => $ref,
                 'order_ref'      => $ref,
                 'customer_email' => $delivery['email'],
                 'currency'       => $currency,
-                'items'          => $lineItems,
+                'items'          => $stripeItems,
             ]);
 
             $order->update(['payment_session_id' => $result['checkout_session_id']]);
@@ -426,6 +452,21 @@ class PaymentController extends Controller
         }
 
         return [];
+    }
+
+    private function resolveCustomerType(Request $request): ?string
+    {
+        $raw = $request->bearerToken();
+        if (! $raw) {
+            return null;
+        }
+
+        $token = PersonalAccessToken::findToken($raw);
+        if (! $token || $token->tokenable_type !== Customer::class) {
+            return null;
+        }
+
+        return $token->tokenable?->customer_type;
     }
 
     private function generateRef(): string
