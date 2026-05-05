@@ -104,7 +104,7 @@ class PaymentController extends Controller
             $lineItems[] = [
                 'product_id' => $productId,
                 'sku'        => $dbProduct?->sku,
-                'brand'      => $productData['brand'],
+                'brand'      => $dbProduct?->brand ?? $productData['brand'],
                 'name'       => $productData['name'],
                 'size'       => $productData['size'],
                 'unit_price' => $unitPrice,
@@ -253,16 +253,17 @@ class PaymentController extends Controller
     public function taxPreview(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'items'            => ['required', 'array', 'min:1'],
-            'items.*.price'    => ['required', 'numeric', 'min:0'],
-            'items.*.quantity' => ['required', 'integer', 'min:1'],
-            'items.*.brand'    => ['sometimes', 'nullable', 'string', 'max:200'],
-            'delivery_cost'    => ['sometimes', 'nullable', 'numeric', 'min:0'],
-            'country'          => ['sometimes', 'nullable', 'string', 'max:100'],
-            'vat_number'       => ['sometimes', 'nullable', 'string', 'max:30'],
-            'vat_valid'        => ['sometimes', 'nullable', 'boolean'],
-            'customer_type'    => ['sometimes', 'nullable', 'string', 'in:b2b,b2c'],
-            'promo_code'       => ['sometimes', 'nullable', 'string', 'max:50'],
+            'items'                => ['required', 'array', 'min:1'],
+            'items.*.price'        => ['required', 'numeric', 'min:0'],
+            'items.*.quantity'     => ['required', 'integer', 'min:1'],
+            'items.*.brand'        => ['sometimes', 'nullable', 'string', 'max:200'],
+            'items.*.product_id'   => ['sometimes', 'nullable', 'integer'],
+            'delivery_cost'        => ['sometimes', 'nullable', 'numeric', 'min:0'],
+            'country'              => ['sometimes', 'nullable', 'string', 'max:100'],
+            'vat_number'           => ['sometimes', 'nullable', 'string', 'max:30'],
+            'vat_valid'            => ['sometimes', 'nullable', 'boolean'],
+            'customer_type'        => ['sometimes', 'nullable', 'string', 'in:b2b,b2c'],
+            'promo_code'           => ['sometimes', 'nullable', 'string', 'max:50'],
         ]);
 
         $subtotalNet  = collect($validated['items'])->sum(fn ($i) => (float) $i['price'] * (int) $i['quantity']);
@@ -302,9 +303,13 @@ class PaymentController extends Controller
                 ], 422);
             }
 
-            // Map preview items to the shape PromoCodeService expects
+            // Map preview items to the shape PromoCodeService expects.
+            // Brand may be omitted by the frontend; fall back to a DB lookup via product_id.
+            $previewProductIds = collect($validated['items'])->pluck('product_id')->filter()->unique()->values()->all();
+            $previewBrands     = $previewProductIds ? Product::whereIn('id', $previewProductIds)->pluck('brand', 'id') : collect();
+
             $previewItems = array_map(fn ($i) => [
-                'brand'      => $i['brand'] ?? null,
+                'brand'      => $i['brand'] ?? $previewBrands->get($i['product_id'] ?? null),
                 'unit_price' => (float) $i['price'],
                 'quantity'   => (int) $i['quantity'],
             ], $validated['items']);
