@@ -30,19 +30,22 @@ class PromotionController extends Controller
     private function format(Promotion $p): array
     {
         return [
-            'id'           => $p->id,
-            'title'        => $p->title,
-            'subheadline'  => $p->subheadline,
-            'short_text'   => $p->short_text,
-            'emoji'        => $p->emoji,
-            'button_text'  => $p->button_text,
-            'button_link'  => $p->button_link,
-            'image_url'    => $p->image_url ? url(Storage::url($p->image_url)) : null,
-            'placement'    => $p->placement ?? 'shop_inline',
-            'is_active'    => $p->is_active,
-            'start_date'   => $p->start_date?->toDateString(),
-            'end_date'     => $p->end_date?->toDateString(),
-            'created_at'   => $p->created_at?->toIso8601String(),
+            'id'                    => $p->id,
+            'title'                 => $p->title,
+            'subheadline'           => $p->subheadline,
+            'short_text'            => $p->short_text,
+            'emoji'                 => $p->emoji,
+            'placement'             => $p->placement ?? 'shop_inline',
+            'brand_name'            => $p->brand_name,
+            'customer_type_target'  => $p->customer_type_target,
+            'discount_pct'          => $p->discount_pct !== null ? (float) $p->discount_pct : null,
+            'button_text'           => $p->button_text,
+            'button_link'           => $p->button_link,
+            'image_url'             => $p->image_url ? url(Storage::url($p->image_url)) : null,
+            'is_active'             => $p->is_active,
+            'start_date'            => $p->start_date?->toDateString(),
+            'end_date'              => $p->end_date?->toDateString(),
+            'created_at'            => $p->created_at?->toIso8601String(),
         ];
     }
 }

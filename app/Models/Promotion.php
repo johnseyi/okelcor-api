@@ -12,6 +12,9 @@ class Promotion extends Model
         'short_text',
         'emoji',
         'placement',
+        'brand_name',
+        'customer_type_target',
+        'discount_pct',
         'button_text',
         'button_link',
         'image_url',
@@ -21,8 +24,9 @@ class Promotion extends Model
     ];
 
     protected $casts = [
-        'is_active'  => 'boolean',
-        'start_date' => 'date:Y-m-d',
-        'end_date'   => 'date:Y-m-d',
+        'is_active'    => 'boolean',
+        'discount_pct' => 'decimal:2',
+        'start_date'   => 'date:Y-m-d',
+        'end_date'     => 'date:Y-m-d',
     ];
 }
