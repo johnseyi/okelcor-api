@@ -70,6 +70,7 @@ Route::prefix('v1')->group(function () {
 
         // Quotes & Invoices
         Route::get('quotes', [CustomerAuthController::class, 'quotes']);
+        Route::get('quotes/{ref}', [CustomerAuthController::class, 'quoteDetail']);
         Route::get('invoices', [CustomerAuthController::class, 'invoices']);
 
         // Addresses

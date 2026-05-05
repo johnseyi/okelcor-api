@@ -7,6 +7,7 @@ use App\Mail\CustomerPasswordReset;
 use App\Models\BlockedEntity;
 use App\Models\Customer;
 use App\Models\LoginHistory;
+use App\Models\QuoteRequest;
 use App\Services\SecurityEventService;
 use App\Services\VatValidationService;
 use Illuminate\Http\JsonResponse;
@@ -14,6 +15,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\URL;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rules\Password;
@@ -442,22 +444,113 @@ class CustomerAuthController extends Controller
     {
         $quotes = $request->user()
             ->quoteRequests()
+            ->with('order')
             ->orderByDesc('created_at')
             ->get()
             ->map(fn ($q) => [
-                'id'             => $q->id,
-                'ref'            => $q->ref_number,
-                'created_at'     => $q->created_at->toIso8601String(),
-                'status'         => $this->mapQuoteStatus($q->status),
+                'id'              => $q->id,
+                'ref'             => $q->ref_number,
+                'created_at'      => $q->created_at->toIso8601String(),
+                'status'          => $this->mapQuoteStatus($q->status),
                 'product_details' => trim(implode(' — ', array_filter([
                     $q->brand_preference,
                     $q->tyre_size,
                 ]))),
-                'quantity'       => $q->quantity,
-                'notes'          => $q->notes,
+                'quantity'        => $q->quantity,
+                'notes'           => $q->notes,
+                // Linked order — all null until admin converts the quote
+                'order_id'        => $q->order_id,
+                'order_ref'       => $q->order?->ref,
+                'order_total'     => $q->order ? (float) $q->order->total : null,
+                'payment_method'  => $q->order?->payment_method,
+                'payment_status'  => $q->order?->payment_status,
+                'order_status'    => $q->order?->status,
             ]);
 
         return response()->json(['data' => $quotes]);
+    }
+
+    // -------------------------------------------------------------------------
+    // GET /api/v1/auth/quotes/{ref}  (protected)
+    // -------------------------------------------------------------------------
+    public function quoteDetail(Request $request, string $ref): JsonResponse
+    {
+        $customer = $request->user();
+
+        $quote = QuoteRequest::with('order.items')
+            ->where('ref_number', $ref)
+            ->first();
+
+        if (! $quote) {
+            return response()->json(['message' => 'Quote not found.'], 404);
+        }
+
+        // Ownership: customer_id match OR email match (covers guest quotes linked by email)
+        $ownsById    = $quote->customer_id !== null && $quote->customer_id === $customer->id;
+        $ownsByEmail = strtolower($quote->email) === strtolower($customer->email);
+
+        if (! $ownsById && ! $ownsByEmail) {
+            return response()->json(['message' => 'Quote not found.'], 404);
+        }
+
+        $order = $quote->order;
+
+        return response()->json([
+            'data' => [
+                'id'                   => $quote->id,
+                'ref'                  => $quote->ref_number,
+                'created_at'           => $quote->created_at->toIso8601String(),
+                'status'               => $this->mapQuoteStatus($quote->status),
+                'product_details'      => trim(implode(' — ', array_filter([
+                    $quote->brand_preference,
+                    $quote->tyre_size,
+                ]))),
+                'tyre_category'        => $quote->tyre_category,
+                'brand_preference'     => $quote->brand_preference,
+                'tyre_size'            => $quote->tyre_size,
+                'quantity'             => $quote->quantity,
+                'budget_range'         => $quote->budget_range,
+                'delivery_location'    => $quote->delivery_location,
+                'delivery_address'     => $quote->delivery_address,
+                'delivery_city'        => $quote->delivery_city,
+                'delivery_postal_code' => $quote->delivery_postal_code,
+                'country'              => $quote->country,
+                'notes'                => $quote->notes,
+                'admin_notes'          => $quote->admin_notes,
+                'has_attachment'       => (bool) $quote->attachment_path,
+                'attachment_name'      => $quote->attachment_original_name,
+                'attachment_size'      => $quote->attachment_size,
+                'attachment_mime'      => $quote->attachment_mime,
+                'attachment_url'       => $quote->attachment_path
+                    ? url(Storage::url($quote->attachment_path))
+                    : null,
+                // Linked order — all null until admin converts the quote
+                'order_id'             => $quote->order_id,
+                'order_ref'            => $order?->ref,
+                'order_status'         => $order?->status,
+                'payment_method'       => $order?->payment_method,
+                'payment_status'       => $order?->payment_status,
+                'subtotal'             => $order ? (float) $order->subtotal : null,
+                'delivery_cost'        => $order ? (float) $order->delivery_cost : null,
+                'tax_rate'             => $order ? (float) $order->tax_rate : null,
+                'tax_amount'           => $order ? (float) $order->tax_amount : null,
+                'tax_treatment'        => $order?->tax_treatment,
+                'is_reverse_charge'    => $order !== null ? (bool) $order->is_reverse_charge : null,
+                'order_total'          => $order ? (float) $order->total : null,
+                'order_items'          => $order
+                    ? $order->items->map(fn ($item) => [
+                        'sku'        => $item->sku,
+                        'brand'      => $item->brand,
+                        'name'       => $item->name,
+                        'size'       => $item->size,
+                        'unit_price' => (float) $item->unit_price,
+                        'quantity'   => $item->quantity,
+                        'line_total' => (float) $item->line_total,
+                    ])->values()
+                    : null,
+            ],
+            'message' => 'success',
+        ]);
     }
 
     // -------------------------------------------------------------------------
@@ -510,11 +603,11 @@ class CustomerAuthController extends Controller
     private function mapQuoteStatus(string $status): string
     {
         return match ($status) {
-            'new'       => 'pending',
-            'reviewing' => 'reviewed',
-            'quoted'    => 'approved',
-            'closed'    => 'rejected',
-            default     => $status,
+            'new'      => 'pending',
+            'reviewed' => 'reviewed',
+            'quoted'   => 'approved',
+            'closed'   => 'rejected',
+            default    => $status,
         };
     }
 
