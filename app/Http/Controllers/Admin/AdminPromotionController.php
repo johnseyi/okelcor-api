@@ -8,6 +8,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use Illuminate\Validation\Rule;
 
 class AdminPromotionController extends Controller
 {
@@ -39,7 +40,7 @@ class AdminPromotionController extends Controller
             'brand_name'            => ['nullable', 'string', 'max:100'],
             'customer_type_target'  => ['nullable', 'in:b2b,b2c'],
             'discount_pct'          => ['nullable', 'numeric', 'min:0', 'max:100'],
-            'promo_code'            => ['nullable', 'string', 'max:50'],
+            'promo_code'            => ['nullable', 'string', 'max:50', Rule::unique('promotions', 'code')],
             'button_text'           => ['nullable', 'string', 'max:100'],
             'button_link'           => ['nullable', 'string', 'max:300'],
             'is_active'             => ['nullable', 'boolean'],
@@ -75,7 +76,7 @@ class AdminPromotionController extends Controller
             'brand_name'            => ['nullable', 'string', 'max:100'],
             'customer_type_target'  => ['nullable', 'in:b2b,b2c'],
             'discount_pct'          => ['nullable', 'numeric', 'min:0', 'max:100'],
-            'promo_code'            => ['nullable', 'string', 'max:50'],
+            'promo_code'            => ['nullable', 'string', 'max:50', Rule::unique('promotions', 'code')->ignore($promotion->id)],
             'button_text'           => ['nullable', 'string', 'max:100'],
             'button_link'           => ['nullable', 'string', 'max:300'],
             'is_active'             => ['nullable', 'boolean'],
