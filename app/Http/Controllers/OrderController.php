@@ -72,6 +72,7 @@ class OrderController extends Controller
             'delivery_cost'     => (float) $o->delivery_cost,
             'total'             => (float) $o->total,
             'carrier'            => $o->carrier,
+            'carrier_type'       => $o->carrier_type,
             'tracking_number'    => $o->tracking_number,
             'container_number'   => $o->container_number,
             'estimated_delivery' => $o->estimated_delivery,

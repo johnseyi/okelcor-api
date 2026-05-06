@@ -93,7 +93,7 @@ class AdminOrderController extends Controller
             ], 409);
         }
 
-        $order->update($request->only(['status', 'carrier', 'tracking_number', 'container_number', 'estimated_delivery', 'eta', 'admin_notes']));
+        $order->update($request->only(['status', 'carrier', 'carrier_type', 'tracking_number', 'container_number', 'estimated_delivery', 'eta', 'admin_notes']));
         $order->load(['items', 'logs']);
 
         $this->logStatusChange($request, $order, $previousStatus);
@@ -157,7 +157,7 @@ class AdminOrderController extends Controller
             ], 409);
         }
 
-        $order->update($request->only(['status', 'carrier', 'tracking_number', 'container_number', 'estimated_delivery', 'eta']));
+        $order->update($request->only(['status', 'carrier', 'carrier_type', 'tracking_number', 'container_number', 'estimated_delivery', 'eta']));
 
         $this->logStatusChange($request, $order, $previousStatus);
         $this->logTrackingChange($request, $order);
@@ -168,6 +168,7 @@ class AdminOrderController extends Controller
                 'ref'                => $order->ref,
                 'status'             => $order->status,
                 'carrier'            => $order->carrier,
+                'carrier_type'       => $order->carrier_type,
                 'tracking_number'    => $order->tracking_number,
                 'container_number'   => $order->container_number,
                 'estimated_delivery' => $order->estimated_delivery,
@@ -347,6 +348,7 @@ class AdminOrderController extends Controller
             'payment_method'     => $o->payment_method,
             'notes'              => $o->admin_notes,
             'carrier'            => $o->carrier,
+            'carrier_type'       => $o->carrier_type,
             'tracking_number'    => $o->tracking_number,
             'container_number'   => $o->container_number,
             'tracking_status'    => $o->tracking_status,
