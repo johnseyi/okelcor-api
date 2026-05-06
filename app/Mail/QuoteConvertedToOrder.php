@@ -6,6 +6,7 @@ use App\Models\Order;
 use App\Models\QuoteRequest;
 use Illuminate\Bus\Queueable;
 use Illuminate\Mail\Mailable;
+use Illuminate\Mail\Mailables\Address;
 use Illuminate\Mail\Mailables\Content;
 use Illuminate\Mail\Mailables\Envelope;
 use Illuminate\Queue\SerializesModels;
@@ -23,7 +24,11 @@ class QuoteConvertedToOrder extends Mailable
     public function envelope(): Envelope
     {
         return new Envelope(
-            subject: 'Your quote has been converted to an order — ' . $this->order->ref,
+            from: new Address(
+                config('mail.from.address', 'support@okelcor.com'),
+                config('mail.from.name', 'Okelcor'),
+            ),
+            subject: 'Okelcor payment instructions — ' . $this->order->ref,
         );
     }
 
@@ -32,7 +37,8 @@ class QuoteConvertedToOrder extends Mailable
         $frontendUrl = rtrim(config('app.frontend_url', 'https://okelcor.com'), '/');
 
         return new Content(
-            view: 'emails.quote-converted-to-order',
+            html: 'emails.quote-converted-to-order',
+            text: 'emails.quote-converted-to-order-text',
             with: [
                 'order'       => $this->order,
                 'quote'       => $this->quote,

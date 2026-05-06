@@ -5,6 +5,7 @@ namespace App\Mail;
 use App\Models\Order;
 use Illuminate\Bus\Queueable;
 use Illuminate\Mail\Mailable;
+use Illuminate\Mail\Mailables\Address;
 use Illuminate\Mail\Mailables\Content;
 use Illuminate\Mail\Mailables\Envelope;
 use Illuminate\Queue\SerializesModels;
@@ -18,7 +19,14 @@ class OrderReceived extends Mailable
     public function envelope(): Envelope
     {
         return new Envelope(
-            subject: 'New Order — ' . $this->order->ref . ' (' . $this->order->customer_name . ')',
+            from: new Address(
+                config('mail.from.address', 'support@okelcor.com'),
+                config('mail.from.name', 'Okelcor'),
+            ),
+            replyTo: [
+                new Address($this->order->customer_email, $this->order->customer_name),
+            ],
+            subject: 'New order — ' . $this->order->ref . ' (' . $this->order->customer_name . ')',
         );
     }
 
@@ -28,7 +36,7 @@ class OrderReceived extends Mailable
             view: 'emails.order-received',
             with: [
                 'order'       => $this->order,
-                'trackingUrl' => rtrim(env('FRONTEND_URL', 'https://okelcor.com'), '/')
+                'trackingUrl' => rtrim(config('app.frontend_url', 'https://okelcor.com'), '/')
                                  . '/account/orders/' . $this->order->ref,
             ],
         );

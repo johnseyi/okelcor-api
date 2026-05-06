@@ -6,6 +6,7 @@ use App\Models\Invoice;
 use App\Models\Order;
 use Illuminate\Bus\Queueable;
 use Illuminate\Mail\Mailable;
+use Illuminate\Mail\Mailables\Address;
 use Illuminate\Mail\Mailables\Content;
 use Illuminate\Mail\Mailables\Envelope;
 use Illuminate\Queue\SerializesModels;
@@ -21,17 +22,29 @@ class OrderConfirmation extends Mailable
 
     public function envelope(): Envelope
     {
+        $isBankTransferPending = $this->order->payment_method === 'bank_transfer'
+            && $this->order->payment_status !== 'paid';
+
+        $subject = $isBankTransferPending
+            ? 'Okelcor payment instructions — ' . $this->order->ref
+            : 'Okelcor order confirmation — ' . $this->order->ref;
+
         return new Envelope(
-            subject: 'Order Confirmation — ' . $this->order->ref,
+            from: new Address(
+                config('mail.from.address', 'support@okelcor.com'),
+                config('mail.from.name', 'Okelcor'),
+            ),
+            subject: $subject,
         );
     }
 
     public function content(): Content
     {
-        $frontendUrl = rtrim(env('FRONTEND_URL', 'https://okelcor.com'), '/');
+        $frontendUrl = rtrim(config('app.frontend_url', 'https://okelcor.com'), '/');
 
         return new Content(
-            view: 'emails.order-confirmation',
+            html: 'emails.order-confirmation',
+            text: 'emails.order-confirmation-text',
             with: [
                 'order'       => $this->order,
                 'invoice'     => $this->invoice,

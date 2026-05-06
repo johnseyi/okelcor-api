@@ -205,6 +205,10 @@ class PaymentController extends Controller
 
                 try {
                     Mail::to($order->customer_email)->send(new OrderConfirmation($order, null));
+                    Log::info('Bank transfer payment instructions email sent', [
+                        'ref'            => $ref,
+                        'customer_email' => $order->customer_email,
+                    ]);
                 } catch (\Throwable $e) {
                     Log::error('Bank transfer order confirmation email failed', [
                         'ref'   => $ref,
@@ -216,6 +220,10 @@ class PaymentController extends Controller
                 if ($adminEmail) {
                     try {
                         Mail::to($adminEmail)->send(new OrderReceived($order));
+                        Log::info('Bank transfer admin notification sent', [
+                            'ref'         => $ref,
+                            'admin_email' => $adminEmail,
+                        ]);
                     } catch (\Throwable $e) {
                         Log::error('Bank transfer admin notification failed', [
                             'ref'   => $ref,
