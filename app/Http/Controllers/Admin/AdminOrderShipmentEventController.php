@@ -113,7 +113,7 @@ class AdminOrderShipmentEventController extends Controller
     {
         return [
             'id'           => $e->id,
-            'event_date'   => $e->event_date?->toDateString(),
+            'date'         => $e->event_date?->toDateString(),
             'location'     => $e->location,
             'status_label' => $e->status_label,
             'description'  => $e->description,
