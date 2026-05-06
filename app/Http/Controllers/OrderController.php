@@ -81,7 +81,7 @@ class OrderController extends Controller
             'shipment_events'    => $o->relationLoaded('shipmentEvents')
                 ? $o->shipmentEvents->map(fn ($e) => [
                     'id'           => $e->id,
-                    'date'         => $e->event_date?->toDateString(),
+                    'event_date'   => $e->event_date?->toDateString(),
                     'location'     => $e->location,
                     'status_label' => $e->status_label,
                     'description'  => $e->description,
