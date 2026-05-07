@@ -418,7 +418,7 @@ class AdminQuoteRequestController extends Controller
             'country'              => $r->country,
             'business_type'        => $r->business_type,
             'vat_number'           => $r->vat_number,
-            'vat_valid'            => $r->vat_valid,
+            'vat_valid'            => $r->vat_valid !== null ? (bool) $r->vat_valid : null,
 
             // Product request
             'tyre_category'        => $r->tyre_category,
