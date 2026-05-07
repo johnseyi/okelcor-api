@@ -416,6 +416,7 @@ class AdminQuoteRequestController extends Controller
             'email'                => $r->email,
             'phone'                => $r->phone,
             'country'              => $r->country,
+            'business_type'        => $r->business_type,
             'vat_number'           => $r->vat_number,
             'vat_valid'            => $r->vat_valid,
 
