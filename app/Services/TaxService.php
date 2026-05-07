@@ -168,4 +168,28 @@ class TaxService
 
         return $code !== null && in_array($code, self::EU_CODES, true);
     }
+
+    /**
+     * Returns true when the country is an EU member state other than Germany.
+     * Germany is excluded because Okelcor is registered there — domestic VAT rules apply.
+     */
+    public function isEuCountryExceptGermany(?string $country): bool
+    {
+        $code = $this->resolveCountryCode($country);
+
+        return $code !== null && $code !== 'DE' && in_array($code, self::EU_CODES, true);
+    }
+
+    /**
+     * Returns true when EU VAT validation is mandatory for this customer.
+     *
+     * Rule: B2B customers in EU countries outside Germany must supply a
+     * VIES-validated VAT number to qualify for reverse charge (or to submit
+     * a quote/order at all). Germany is domestic — standard rate applies
+     * regardless. Non-EU is exempt — no VAT required.
+     */
+    public function requiresEuVat(?string $country, ?string $customerType): bool
+    {
+        return $customerType === 'b2b' && $this->isEuCountryExceptGermany($country);
+    }
 }

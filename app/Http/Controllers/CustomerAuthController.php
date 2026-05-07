@@ -9,6 +9,7 @@ use App\Models\Customer;
 use App\Models\LoginHistory;
 use App\Models\QuoteRequest;
 use App\Services\SecurityEventService;
+use App\Services\TaxService;
 use App\Services\VatValidationService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -22,7 +23,10 @@ use Illuminate\Validation\Rules\Password;
 
 class CustomerAuthController extends Controller
 {
-    public function __construct(private VatValidationService $vatService) {}
+    public function __construct(
+        private VatValidationService $vatService,
+        private TaxService $taxService,
+    ) {}
 
     // -------------------------------------------------------------------------
     // POST /api/v1/auth/register
@@ -398,10 +402,31 @@ class CustomerAuthController extends Controller
         // Re-validate VAT if number changed
         if (array_key_exists('vat_number', $data) && $data['vat_number'] !== $customer->vat_number) {
             if (! empty($data['vat_number'])) {
-                $result              = $this->vatService->validate($data['vat_number']);
+                $result               = $this->vatService->validate($data['vat_number']);
                 $data['vat_verified'] = $result['valid'];
             } else {
                 $data['vat_verified'] = false;
+            }
+        }
+
+        // EU VAT enforcement: B2B customers outside Germany must keep a valid VAT number.
+        // Effective values after the pending update (fall back to current DB values if not changing).
+        $effectiveCountry     = $data['country'] ?? $customer->country;
+        $effectiveVatNumber   = array_key_exists('vat_number', $data) ? $data['vat_number'] : $customer->vat_number;
+        $effectiveVatVerified = array_key_exists('vat_verified', $data) ? $data['vat_verified'] : (bool) $customer->vat_verified;
+
+        if ($this->taxService->requiresEuVat($effectiveCountry, $customer->customer_type)) {
+            if (empty($effectiveVatNumber)) {
+                return response()->json([
+                    'message' => 'A valid EU VAT number is required for business accounts in EU member states.',
+                    'errors'  => ['vat_number' => ['A valid EU VAT number is required for business accounts in EU member states.']],
+                ], 422);
+            }
+            if (! $effectiveVatVerified) {
+                return response()->json([
+                    'message' => 'A valid EU VAT number is required for business accounts in EU member states.',
+                    'errors'  => ['vat_number' => ['Your VAT number could not be validated. Please enter a valid EU VAT number.']],
+                ], 422);
             }
         }
 
@@ -509,6 +534,12 @@ class CustomerAuthController extends Controller
                 'brand_preference'     => $quote->brand_preference,
                 'tyre_size'            => $quote->tyre_size,
                 'quantity'             => $quote->quantity,
+                'tyre_condition'       => $quote->tyre_condition,
+                'used_tyre_grade'      => $quote->used_tyre_grade,
+                'used_tyre_notes'      => $quote->used_tyre_notes,
+                'tyre_items'           => $quote->tyre_items,
+                'incoterm'             => $quote->incoterm,
+                'incoterm_type'        => $quote->incoterm_type,
                 'budget_range'         => $quote->budget_range,
                 'delivery_location'    => $quote->delivery_location,
                 'delivery_address'     => $quote->delivery_address,

@@ -12,7 +12,11 @@ class QuoteRequest extends Model
         'order_id',
         'ref_number',
         'full_name',
+        'contact_person',
         'company_name',
+        'company_address',
+        'company_city',
+        'company_postal_code',
         'email',
         'phone',
         'country',
@@ -20,10 +24,16 @@ class QuoteRequest extends Model
         'tyre_category',
         'brand_preference',
         'tyre_size',
+        'tyre_condition',
+        'used_tyre_grade',
+        'used_tyre_notes',
         'quantity',
+        'tyre_items',
         'budget_range',
         'delivery_location',
         'delivery_timeline',
+        'incoterm',
+        'incoterm_type',
         'notes',
         'status',
         'admin_notes',
@@ -37,6 +47,10 @@ class QuoteRequest extends Model
         'delivery_address',
         'delivery_city',
         'delivery_postal_code',
+    ];
+
+    protected $casts = [
+        'tyre_items' => 'array',
     ];
 
     protected $hidden = [

@@ -370,11 +370,15 @@ class AdminQuoteRequestController extends Controller
             'id'                       => $r->id,
             'ref_number'               => $r->ref_number,
             'full_name'                => $r->full_name,
+            'contact_person'           => $r->contact_person,
             'company_name'             => $r->company_name,
             'email'                    => $r->email,
             'tyre_category'            => $r->tyre_category,
+            'tyre_condition'           => $r->tyre_condition,
             'country'                  => $r->country,
             'quantity'                 => $r->quantity,
+            'tyre_items'               => $r->tyre_items,
+            'incoterm'                 => $r->incoterm,
             'delivery_address'         => $r->delivery_address,
             'delivery_city'            => $r->delivery_city,
             'delivery_postal_code'     => $r->delivery_postal_code,
@@ -395,26 +399,55 @@ class AdminQuoteRequestController extends Controller
         $r->loadMissing('order');
 
         return [
-            'id'                       => $r->id,
-            'ref_number'               => $r->ref_number,
-            'full_name'                => $r->full_name,
-            'company_name'             => $r->company_name,
-            'email'                    => $r->email,
-            'phone'                    => $r->phone,
-            'tyre_category'            => $r->tyre_category,
-            'country'                  => $r->country,
-            'quantity'                 => $r->quantity,
-            'delivery_location'        => $r->delivery_location,
-            'delivery_address'         => $r->delivery_address,
-            'delivery_city'            => $r->delivery_city,
-            'delivery_postal_code'     => $r->delivery_postal_code,
-            'notes'                    => $r->notes,
-            'status'                   => $r->status,
-            'admin_notes'              => $r->admin_notes,
-            'created_at'               => $r->created_at?->toIso8601String(),
-            'updated_at'               => $r->updated_at?->toIso8601String(),
-            'order_id'                 => $r->order_id,
-            'order_ref'                => $r->order?->ref,
+            // Identity
+            'id'                   => $r->id,
+            'ref_number'           => $r->ref_number,
+            'status'               => $r->status,
+            'created_at'           => $r->created_at?->toIso8601String(),
+            'updated_at'           => $r->updated_at?->toIso8601String(),
+
+            // Contact
+            'full_name'            => $r->full_name,
+            'contact_person'       => $r->contact_person,
+            'company_name'         => $r->company_name,
+            'company_address'      => $r->company_address,
+            'company_city'         => $r->company_city,
+            'company_postal_code'  => $r->company_postal_code,
+            'email'                => $r->email,
+            'phone'                => $r->phone,
+            'country'              => $r->country,
+            'vat_number'           => $r->vat_number,
+            'vat_valid'            => $r->vat_valid,
+
+            // Product request
+            'tyre_category'        => $r->tyre_category,
+            'brand_preference'     => $r->brand_preference,
+            'tyre_size'            => $r->tyre_size,       // legacy
+            'quantity'             => $r->quantity,         // legacy
+            'tyre_condition'       => $r->tyre_condition,
+            'used_tyre_grade'      => $r->used_tyre_grade,
+            'used_tyre_notes'      => $r->used_tyre_notes,
+            'tyre_items'           => $r->tyre_items,
+
+            // Delivery & logistics
+            'budget_range'         => $r->budget_range,
+            'delivery_location'    => $r->delivery_location,
+            'delivery_timeline'    => $r->delivery_timeline,
+            'delivery_address'     => $r->delivery_address,
+            'delivery_city'        => $r->delivery_city,
+            'delivery_postal_code' => $r->delivery_postal_code,
+            'incoterm'             => $r->incoterm,
+            'incoterm_type'        => $r->incoterm_type,
+
+            // Notes
+            'notes'                => $r->notes,
+            'admin_notes'          => $r->admin_notes,
+
+            // Linked order
+            'order_id'             => $r->order_id,
+            'order_ref'            => $r->order?->ref,
+
+            // Attachment
             'has_attachment'           => (bool) $r->attachment_path,
             'attachment_url'           => $r->attachment_path ? url(Storage::url($r->attachment_path)) : null,
             'attachment_name'          => $r->attachment_original_name,

@@ -64,6 +64,7 @@ class PaymentController extends Controller
             'paymentMethod'          => ['sometimes', 'nullable', 'string', 'in:stripe,bank_transfer'],
             'payment_method'         => ['sometimes', 'nullable', 'string', 'in:stripe,bank_transfer'],
             'vat_number'             => ['sometimes', 'nullable', 'string', 'max:20'],
+            'customer_type'          => ['sometimes', 'nullable', 'string', 'in:b2b,b2c'],
             'promo_code'             => ['sometimes', 'nullable', 'string', 'max:50'],
             'items'                  => ['required', 'array', 'min:1'],
             'items.*.product'        => ['required', 'array'],
@@ -78,11 +79,32 @@ class PaymentController extends Controller
         $delivery = $validated['delivery'];
         $items    = $validated['items'];
 
-        $vatNumber = $validated['vat_number'] ?? null;
-        $vatValid  = null;
+        // Auth token customer_type wins; fall back to request body for guest B2B
+        $customerType = $this->resolveCustomerType($request) ?? ($validated['customer_type'] ?? null);
+
+        $vatNumber    = $validated['vat_number'] ?? null;
+        $vatValid     = null;
+        $vatValidBool = null;
         if ($vatNumber) {
-            $vatResult = $this->vatService->validate($vatNumber);
-            $vatValid  = $vatResult['valid'] ? 1 : 0;
+            $vatResult    = $this->vatService->validate($vatNumber);
+            $vatValid     = $vatResult['valid'] ? 1 : 0;
+            $vatValidBool = (bool) $vatResult['valid'];
+        }
+
+        // EU VAT enforcement: B2B customers outside Germany must supply a valid VAT number
+        if ($this->taxService->requiresEuVat($delivery['country'], $customerType)) {
+            if (! $vatNumber) {
+                return response()->json([
+                    'message' => 'A valid EU VAT number is required for business purchases in EU member states.',
+                    'errors'  => ['vat_number' => ['A valid EU VAT number is required for business purchases in EU member states.']],
+                ], 422);
+            }
+            if (! $vatValidBool) {
+                return response()->json([
+                    'message' => 'A valid EU VAT number is required for business purchases in EU member states.',
+                    'errors'  => ['vat_number' => ['Your VAT number could not be validated. Please check it and try again.']],
+                ], 422);
+            }
         }
 
         // Use DB prices to prevent client-side price manipulation
@@ -113,9 +135,6 @@ class PaymentController extends Controller
                 'line_total' => $lineTotal,
             ];
         }
-
-        // Resolve customer type (used for tax and promo eligibility)
-        $customerType = $this->resolveCustomerType($request);
 
         // --- Promo code ---
         $promoCode      = isset($validated['promo_code']) ? strtoupper(trim((string) $validated['promo_code'])) : null;
@@ -149,8 +168,7 @@ class PaymentController extends Controller
         }
 
         // Calculate tax after discount — delivery_cost is always 0 on Stripe cart checkout
-        $vatValidBool = $vatValid !== null ? (bool) $vatValid : null;
-        $tax          = $this->taxService->calculate($delivery['country'], $vatValidBool, $customerType);
+        $tax = $this->taxService->calculate($delivery['country'], $vatValidBool, $customerType);
         $taxableBase  = $subtotal - $discountAmount;
         $taxAmount    = round($taxableBase * $tax['tax_rate'] / 100, 2);
         $total        = $taxableBase + $taxAmount;

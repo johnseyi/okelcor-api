@@ -7,6 +7,7 @@ use App\Mail\QuoteRequestAcknowledgement;
 use App\Mail\QuoteRequestReceived;
 use App\Models\Customer;
 use App\Models\QuoteRequest;
+use App\Services\TaxService;
 use App\Services\VatValidationService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -18,23 +19,51 @@ use Laravel\Sanctum\PersonalAccessToken;
 
 class QuoteRequestController extends Controller
 {
-    public function __construct(private VatValidationService $vatService) {}
+    public function __construct(
+        private VatValidationService $vatService,
+        private TaxService $taxService,
+    ) {}
 
     public function store(StoreQuoteRequestRequest $request): JsonResponse
     {
         $refNumber = $this->generateRef();
         $validated = $request->validated();
 
+        // Resolve customer from auth token (optional — quote submission is public)
+        $customer = $this->resolveCustomerFromToken($request);
+
+        // Customer type: auth token wins; then explicit request field; then infer from company_name
+        $customerType = $customer?->customer_type
+            ?? ($validated['customer_type'] ?? null)
+            ?? (! empty($validated['company_name']) ? 'b2b' : null);
+
         // Strip VAT for individual (b2c) customers — they don't have a business VAT number
-        $customer  = $this->resolveCustomerFromToken($request);
-        $vatNumber = ($customer && $customer->customer_type === 'b2c')
+        $vatNumber = ($customerType === 'b2c')
             ? null
             : ($validated['vat_number'] ?? null);
-        $vatValid  = null;
+        $vatValid     = null;
+        $vatValidBool = null;
 
         if ($vatNumber) {
-            $vatResult = $this->vatService->validate($vatNumber);
-            $vatValid  = $vatResult['valid'] ? 1 : 0;
+            $vatResult    = $this->vatService->validate($vatNumber);
+            $vatValid     = $vatResult['valid'] ? 1 : 0;
+            $vatValidBool = (bool) $vatResult['valid'];
+        }
+
+        // EU VAT enforcement: B2B customers outside Germany must supply a valid VAT number
+        if ($this->taxService->requiresEuVat($validated['country'], $customerType)) {
+            if (! $vatNumber) {
+                return response()->json([
+                    'message' => 'A valid EU VAT number is required for business purchases in EU member states.',
+                    'errors'  => ['vat_number' => ['A valid EU VAT number is required for business purchases in EU member states.']],
+                ], 422);
+            }
+            if (! $vatValidBool) {
+                return response()->json([
+                    'message' => 'A valid EU VAT number is required for business purchases in EU member states.',
+                    'errors'  => ['vat_number' => ['Your VAT number could not be validated. Please check it and try again.']],
+                ], 422);
+            }
         }
 
         $quote = QuoteRequest::create(array_merge(

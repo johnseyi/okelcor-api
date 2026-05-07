@@ -1,5 +1,5 @@
 # Session Handoff — Okelcor API
-Last updated: 2026-05-04 (session 3)
+Last updated: 2026-05-07 (session 4)
 
 ## Project
 Laravel 13.2 / PHP 8.3 REST API for Okelcor B2B tyre wholesale.
@@ -453,23 +453,49 @@ Response (201):
   "data": {
     "id": 1,
     "ref_number": "OKL-QR-877755-MWM",
-    "full_name": "...",
+    "status": "quoted",
+    "created_at": "...",
+    "updated_at": "...",
+
+    "full_name": "Hans Müller",
+    "contact_person": "Anna Schmidt",
+    "company_name": "Reifen GmbH",
+    "company_address": "Industriestr. 12",
+    "company_city": "Hamburg",
+    "company_postal_code": "20095",
     "email": "...",
     "phone": "...",
-    "tyre_category": "PCR",
     "country": "Germany",
+    "vat_number": "DE123456789",
+    "vat_valid": 1,
+
+    "tyre_category": "TBR",
+    "brand_preference": "Michelin",
+    "tyre_size": "315/80R22.5",
     "quantity": "200",
-    "delivery_location": "Hamburg",
+    "tyre_condition": "used",
+    "used_tyre_grade": "grade_a",
+    "used_tyre_notes": "No sidewall damage.",
+    "tyre_items": [
+      { "size": "315/80R22.5", "quantity": "200" },
+      { "size": "385/65R22.5", "quantity": "100" }
+    ],
+
+    "budget_range": null,
+    "delivery_location": "Hamburg port",
+    "delivery_timeline": "4–6 weeks",
     "delivery_address": "Musterstraße 1",
     "delivery_city": "Hamburg",
     "delivery_postal_code": "20095",
+    "incoterm": "DAP",
+    "incoterm_type": "delivery_terms",
+
     "notes": "...",
-    "status": "quoted",
     "admin_notes": "...",
-    "created_at": "...",
-    "updated_at": "...",
+
     "order_id": 42,
     "order_ref": "OKL-XXXXXX",
+
     "has_attachment": true,
     "attachment_url": "https://api.okelcor.com/storage/quote-attachments/uuid.pdf",
     "attachment_name": "Invoice-KDQWK0JJ-0001.pdf",
@@ -480,9 +506,15 @@ Response (201):
 }
 ```
 - `order_id` / `order_ref` — null until converted; non-null means already converted
+- `tyre_size` + `quantity` — legacy single-row fields; kept for backwards compatibility
+- `tyre_items` — null or decoded JSON array; cast as PHP array by model
+- `tyre_condition` — `null`, `"new"`, or `"used"`; `used_tyre_grade` / `used_tyre_notes` only populated when condition is `used`
+- `incoterm` / `incoterm_type` — nullable preferred logistics terms
+- `company_address`, `company_city`, `company_postal_code` — company registered address (distinct from delivery address)
+- `contact_person` — purchasing contact, may differ from `full_name`
 - `delivery_address`, `delivery_city`, `delivery_postal_code` — nullable structured fields; supplement the free-text `delivery_location`
 - `attachment_name` is an alias of `attachment_original_name` (both present for frontend compatibility)
-- List response also includes `order_id`, `has_attachment`, `delivery_address`, `delivery_city`, `delivery_postal_code`
+- List response also includes `contact_person`, `tyre_condition`, `tyre_items`, `incoterm`, `order_id`, `has_attachment`, `delivery_address`, `delivery_city`, `delivery_postal_code`
 
 ---
 
@@ -630,14 +662,27 @@ NOT through the Vercel proxy.
 | `order_id` | bigint FK | nullable, nullifies on order delete — set when quote is converted to order |
 | `ref_number` | varchar(30) | unique |
 | `full_name` | varchar(200) | |
+| `contact_person` | varchar(150) | nullable — purchasing manager / decision-maker |
 | `company_name` | varchar(200) | nullable |
+| `company_address` | varchar(300) | nullable — company registered/billing street address |
+| `company_city` | varchar(100) | nullable |
+| `company_postal_code` | varchar(30) | nullable |
 | `email` | varchar(255) | indexed |
 | `phone` | varchar(50) | nullable |
 | `country` | varchar(100) | |
 | `tyre_category` | varchar(100) | |
 | `brand_preference` | varchar(200) | nullable |
-| `tyre_size` | varchar(100) | nullable |
-| `quantity` | varchar(100) | free text — not an integer |
+| `tyre_size` | varchar(100) | nullable — legacy single-size field; kept for BC |
+| `tyre_condition` | varchar(50) | nullable — `new` or `used` |
+| `used_tyre_grade` | varchar(50) | nullable — `grade_a`, `grade_b`, `mixed` |
+| `used_tyre_notes` | text | nullable — free-text condition notes |
+| `quantity` | varchar(100) | free text — legacy; kept for BC |
+| `tyre_items` | json | nullable — multi-row items: `[{"size":"315/80R22.5","quantity":"200"},…]` |
+| `budget_range` | varchar(100) | nullable |
+| `delivery_location` | varchar(300) | |
+| `delivery_timeline` | varchar(100) | nullable |
+| `incoterm` | varchar(10) | nullable — `DAP`, `DDP`, `EXW`, `FOB`, `CIF` |
+| `incoterm_type` | varchar(30) | nullable — `delivery_terms`, `shipping_terms` |
 | `notes` | text | |
 | `status` | enum | `new`, `reviewed`, `quoted`, `closed` — internal values |
 | `admin_notes` | text | nullable |
@@ -652,11 +697,19 @@ NOT through the Vercel proxy.
 | `attachment_mime` | varchar(100) | nullable — MIME type of uploaded file |
 | `attachment_size` | unsigned int | nullable — file size in bytes |
 
+Migration: `2026_05_07_000001_add_rfq_fields_to_quote_requests_table.php` — adds 10 columns above (all nullable, safe to deploy to existing rows).
+
 **Quote attachment upload:**
 - Field: `attachment` (multipart/form-data), optional
 - Accepted types: `pdf`, `csv`, `xls`, `xlsx` — max 10 MB
 - Stored to `storage/app/public/quote-attachments/{uuid}.ext`
 - Admin list + detail responses include: `attachment_url` (absolute), `attachment_name`, `attachment_original_name`, `attachment_mime`, `attachment_size`, `has_attachment` — all null/false when no file attached
+
+**Quote tyre items:**
+- Legacy single-row: `tyre_size` + `quantity` — still accepted, required for BC
+- Multi-row: `tyre_items` JSON array — each entry `{ "size": string, "quantity": string }`
+- Both can coexist; admin reads `tyre_items` for complex RFQs, `tyre_size`/`quantity` for simple ones
+- `QuoteRequest` model casts `tyre_items` as `array`
 
 **Quote status enum (corrected):**
 `new` → `reviewed` → `quoted` → `closed`
@@ -983,7 +1036,9 @@ pending → confirmed (Stripe webhook) → processing (admin sets manually) → 
 | Non-EU | any | any | `exempt` | 0% |
 | Unknown/null | any | any | `exempt` | 0% (safe default) |
 
-- EU detection: `TaxService::isEu(string $code): bool` — covers all 27 EU states + `XI` (Northern Ireland)
+- EU detection: `TaxService::isEu(?string $country): bool` — covers all 27 EU states + `XI` (Northern Ireland)
+- EU excl. Germany: `TaxService::isEuCountryExceptGermany(?string $country): bool` — same but excludes `DE`
+- EU VAT requirement check: `TaxService::requiresEuVat(?string $country, ?string $customerType): bool` — returns true when B2B + EU non-DE
 - Country normalisation: `TaxService::resolveCountryCode(string $country): ?string` — accepts ISO codes, English names, German names (e.g. `"Deutschland"` → `"DE"`)
 - `null` country → `exempt` (safe, avoids under-collection)
 - `null` customerType → treated as B2C (standard rate, safe default)
@@ -1058,6 +1113,38 @@ pending → confirmed (Stripe webhook) → processing (admin sets manually) → 
 - Calls `https://ec.europa.eu/taxation_customs/vies/rest-api/ms/{CC}/vat/{number}`
 - Returns: `{ valid, name, address, country_code, vat_number, message }`
 - Also runs automatically on `POST /orders`, `POST /quote-requests`, and customer register/profile update when `vat_number` is provided
+
+### EU VAT Enforcement (PHASE 2A-1)
+**Rule:** B2B customers in EU countries outside Germany must supply a VIES-validated VAT number. Germany is domestic (19% standard regardless). Non-EU is exempt (no VAT required).
+
+**Enforced on:**
+| Endpoint | How customer_type is resolved |
+|---|---|
+| `POST /api/v1/payments/create-session` | Auth token wins; falls back to request `customer_type` field |
+| `POST /api/v1/quote-requests` | Auth token wins; then request `customer_type`; then inferred from `company_name` presence |
+| `PUT /api/v1/auth/profile` | Always from `customer.customer_type` DB field (cannot be changed in profile update) |
+
+**Error responses (422):**
+```json
+{ "message": "A valid EU VAT number is required for business purchases in EU member states.",
+  "errors": { "vat_number": ["A valid EU VAT number is required for business purchases in EU member states."] } }
+```
+If VAT number is present but VIES validation fails:
+```json
+{ "errors": { "vat_number": ["Your VAT number could not be validated. Please check it and try again."] } }
+```
+
+**Scenario table:**
+| Country | customer_type | vat_number | Result |
+|---|---|---|---|
+| France | b2b | missing | ❌ 422 — required |
+| France | b2b | invalid VIES | ❌ 422 — not validated |
+| France | b2b | valid VIES | ✅ passes; reverse charge applied |
+| Germany | b2b | missing | ✅ passes; 19% standard |
+| France | b2c | missing | ✅ passes; 19% standard |
+| USA | b2b | missing | ✅ passes; exempt |
+
+**Profile update behaviour:** check runs against effective post-update state. Updating phone/name only while already holding a valid EU VAT always passes. Clearing the VAT number for a B2B EU customer is rejected.
 
 ### Multilingual Content
 - Locales: `en`, `de`, `fr`, `es`
