@@ -88,10 +88,14 @@ class OrderController extends Controller
                     'created_at'   => $e->created_at?->toIso8601String(),
                 ])->values()
                 : [],
-            // EU entry certificate — customer-visible status only
-            'declaration_required'  => $o->is_reverse_charge === true,
-            'declaration_status'    => $o->relationLoaded('euDeclaration') ? $o->euDeclaration?->status : null,
-            'declaration_signed_at' => $o->relationLoaded('euDeclaration') ? $o->euDeclaration?->signed_at?->toIso8601String() : null,
+            // EU entry certificate — customer-visible status + download availability
+            'declaration_required'           => $o->is_reverse_charge === true,
+            'declaration_status'             => $o->relationLoaded('euDeclaration') ? $o->euDeclaration?->status : null,
+            'declaration_signed_at'          => $o->relationLoaded('euDeclaration') ? $o->euDeclaration?->signed_at?->toIso8601String() : null,
+            'declaration_signed_name'        => $o->relationLoaded('euDeclaration') ? $o->euDeclaration?->signed_name : null,
+            'declaration_download_available' => $o->relationLoaded('euDeclaration')
+                && $o->euDeclaration?->pdf_path !== null
+                && in_array($o->euDeclaration?->status, ['signed', 'acknowledged']),
 
             'items'             => $o->items->map(fn ($i) => [
                 'product_id'   => $i->product_id,

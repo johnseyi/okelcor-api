@@ -1,5 +1,5 @@
 # Session Handoff — Okelcor API
-Last updated: 2026-05-07 (session 4)
+Last updated: 2026-05-07 (session 5)
 
 ## Project
 Laravel 13.2 / PHP 8.3 REST API for Okelcor B2B tyre wholesale.
@@ -37,7 +37,7 @@ composer install --no-dev
 
 ---
 
-## Current Route Count: 151
+## Current Route Count: 157
 
 ### Customer Auth routes (public — no token)
 ```
@@ -276,6 +276,9 @@ PUT    /admin/quote-requests/{id}
 PATCH  /admin/quote-requests/{id}/status
 POST   /admin/quote-requests/{id}/convert-to-order   ← converts quoted quote to order
 
+GET    /admin/eu-declarations
+GET    /admin/eu-declarations/{id}
+
 GET    /admin/contact-messages
 GET    /admin/contact-messages/{id}
 PATCH  /admin/contact-messages/{id}/status
@@ -466,8 +469,9 @@ Response (201):
     "email": "...",
     "phone": "...",
     "country": "Germany",
+    "business_type": "b2b",
     "vat_number": "DE123456789",
-    "vat_valid": 1,
+    "vat_valid": true,
 
     "tyre_category": "TBR",
     "brand_preference": "Michelin",
@@ -506,6 +510,8 @@ Response (201):
 }
 ```
 - `order_id` / `order_ref` — null until converted; non-null means already converted
+- `business_type` — `"b2b"` or `"b2c"` from the quote request form; distinct from the linked customer's `customer_type`
+- `vat_valid` — JSON boolean (`true` / `false` / `null`), never integer; the DB tinyint is explicitly cast via `(bool)` in the formatter to preserve JSON type correctness
 - `tyre_size` + `quantity` — legacy single-row fields; kept for backwards compatibility
 - `tyre_items` — null or decoded JSON array; cast as PHP array by model
 - `tyre_condition` — `null`, `"new"`, or `"used"`; `used_tyre_grade` / `used_tyre_notes` only populated when condition is `used`
@@ -514,7 +520,7 @@ Response (201):
 - `contact_person` — purchasing contact, may differ from `full_name`
 - `delivery_address`, `delivery_city`, `delivery_postal_code` — nullable structured fields; supplement the free-text `delivery_location`
 - `attachment_name` is an alias of `attachment_original_name` (both present for frontend compatibility)
-- List response also includes `contact_person`, `tyre_condition`, `tyre_items`, `incoterm`, `order_id`, `has_attachment`, `delivery_address`, `delivery_city`, `delivery_postal_code`
+- List response also includes `contact_person`, `business_type`, `tyre_condition`, `tyre_items`, `incoterm`, `order_id`, `has_attachment`, `delivery_address`, `delivery_city`, `delivery_postal_code`
 
 ---
 
@@ -631,6 +637,58 @@ NOT through the Vercel proxy.
 | `tax_amount` | decimal(10,2) | nullable |
 | `is_reverse_charge` | tinyint | default 0 |
 | `created_at` / `updated_at` | timestamp | |
+
+### `eu_declarations`
+Migration: `2026_05_07_200000_create_eu_declarations_table.php`
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | bigint | PK |
+| `order_id` | bigint FK | cascade delete → orders |
+| `customer_id` | bigint FK | nullable → nullOnDelete → customers |
+| `invoice_id` | bigint FK | nullable → nullOnDelete → invoices |
+| `order_ref` | varchar(30) | denormalised snapshot — readable after order deletion |
+| `company_name` | varchar(200) | snapshot at declaration creation |
+| `customer_email` | varchar(255) | indexed snapshot |
+| `customer_address` | text | snapshot: address, city, postal_code, country joined |
+| `vat_number` | varchar(30) | snapshot |
+| `country` | varchar(100) | snapshot |
+| `goods_description` | text | auto-generated: "Qty× Brand Name Size" per item |
+| `quantity_description` | varchar(300) | auto-generated summary e.g. "Total: 200 pcs across 2 lines" |
+| `member_state_of_entry` | varchar(100) | nullable — filled by customer during signing |
+| `place_of_entry` | varchar(200) | nullable |
+| `month_year_received` | varchar(7) | nullable — MM/YYYY format |
+| `self_transported` | tinyint | default 0 — boolean |
+| `month_year_transport_ended` | varchar(7) | nullable — MM/YYYY |
+| `representative_name` | varchar(200) | nullable |
+| `representative_title` | varchar(100) | nullable |
+| `signed_name` | varchar(200) | nullable — name as signed |
+| `accepted_terms` | tinyint | default 0 — must be true to submit |
+| `issue_date` | date | nullable — date declaration was issued |
+| `signed_at` | timestamp | nullable — when customer submitted signing form |
+| `signature_path` | varchar(500) | **hidden from API** — stored on private disk |
+| `pdf_path` | varchar(500) | private disk — `eu-declarations/DECL-OKL-XXXXX.pdf` |
+| `status` | enum | `pending`, `signed`, `acknowledged` — default `pending` |
+| `admin_acknowledged_at` | timestamp | nullable |
+| `admin_acknowledged_by` | bigint | nullable — admin user ID |
+| `ip_address` | varchar(45) | **hidden from API** |
+| `user_agent` | text | **hidden from API** |
+| `created_at` / `updated_at` | timestamp | |
+
+Indexes: `order_ref`, `status`, `customer_email`
+
+**Trigger:** Declaration is created inside `InvoiceService::createForOrder()` — non-blocking, wrapped in try/catch — when `EuDeclarationService::shouldRequireForOrder()` returns true.
+
+**shouldRequireForOrder conditions (all three must be true):**
+- `order.is_reverse_charge === true`
+- `order.tax_treatment === 'reverse_charge'`
+- `(bool) order.vat_valid === true`
+
+**Idempotency:** `EuDeclarationService::createForOrder()` returns existing record if one already exists for the order. If `invoice_id` was not set on the existing record, it is updated.
+
+**Admin endpoints:**
+- `GET /admin/eu-declarations` — paginated list; filterable by `status` and `q` (order_ref, company_name, email, vat_number); roles: super_admin, admin, order_manager
+- `GET /admin/eu-declarations/{id}` — full detail including `has_signature` and `has_pdf` booleans; `signature_path` itself is never returned
 
 ### `products`
 | Column | Type | Notes |
@@ -998,13 +1056,21 @@ pending → confirmed (Stripe webhook) → processing (admin sets manually) → 
 
 **QuoteRequestReceived (admin notification):**
 - Subject: `New quote request — {ref_number}`
-- Full contact + quote details: name, company, email, phone, country, VAT, category, brand, size, qty, budget, timeline, notes, attachment note
+- Plain-text fallback: `emails/quote-request-received-text.blade.php`
+- Reply-To header: customer's email — admin can reply directly from inbox
+- Four labelled sections:
+  - **CONTACT:** full_name, contact_person, company_name, company_address/city/postal_code, email, phone, country, business_type, vat_number with VERIFIED/NOT VERIFIED badge (green/red)
+  - **TYRE REQUEST:** category, brand_preference, tyre_condition, used_tyre_grade/used_tyre_notes (only when condition=used), tyre_items loop with `@foreach`; falls back to legacy tyre_size/quantity when tyre_items is empty
+  - **LOGISTICS:** delivery_location, delivery_address/city/postal_code, delivery_timeline, incoterm + incoterm_type, budget_range
+  - **NOTES/ATTACHMENT:** notes, attachment name if present
 - Sent to: `config('mail.quote_email')` — skipped silently if not set
 
 **QuoteRequestAcknowledgement (customer auto-reply):**
 - Subject: `We received your quote request — {ref_number}`
-- Shows ref, submitted timestamp, size, qty, timeline
-- "What happens next?" — review → quote by email → approve → order
+- Plain-text fallback: `emails/quote-request-acknowledgement-text.blade.php`
+- "Your request summary" section: ref_number, submitted timestamp, tyre_category, brand_preference, tyre_condition, tyre_items loop (same pattern — falls back to legacy), delivery_location, incoterm, delivery_timeline, vat_number (if provided)
+- Does NOT expose: business_type, company_address, contact_person, budget_range (internal fields)
+- "What happens next?" 3-step block: review → quote → order
 
 **QuoteConvertedToOrder email:**
 - Subject: `Your quote has been converted to an order — {order_ref}`
@@ -1046,6 +1112,70 @@ pending → confirmed (Stripe webhook) → processing (admin sets manually) → 
 - Tax fields stored on `orders`: `tax_treatment`, `tax_rate`, `tax_amount`, `is_reverse_charge`
 - Tax fields copied to `invoices` on creation: `subtotal_net`, `tax_treatment`, `tax_rate`, `tax_amount`, `is_reverse_charge`
 - Invoice PDF (`pdf/invoice.blade.php`) and order confirmation / quote-converted emails show full tax breakdown
+
+### EU Entry Certificate — Gelangensbestätigung (§17a UStDV)
+
+Required for all reverse-charge EU B2B orders where `is_reverse_charge=true` and VAT is validated. This is the German legal proof that goods actually arrived in the EU member state (Gelangensbestätigung).
+
+**Workflow:**
+1. Customer places order → payment confirmed → `InvoiceService::createForOrder()` fires
+2. `EuDeclarationService::shouldRequireForOrder()` checks the three conditions → if true, `createForOrder()` creates the `eu_declarations` record (status=`pending`)
+3. Frontend shows a "Complete your declaration" banner on the customer account order page when `declaration_required=true && declaration_status='pending'`
+4. Customer clicks → goes to signing form at `/account/orders/{ref}/declaration` (Next.js page)
+5. Customer fills & signs → `POST /api/v1/auth/orders/{ref}/declaration`
+6. Backend saves signing fields, signature PNG, generates PDF via DomPDF → status=`signed`
+7. Admin reviews via `GET /admin/eu-declarations` → marks acknowledged via `POST /admin/eu-declarations/{id}/acknowledge` → status=`acknowledged`
+
+**Phase 2B-2 (DONE):** Migration, `EuDeclaration` model, `EuDeclarationService` (create + should-require logic), `AdminEuDeclarationController` (list + show), declaration fields wired into admin and public order detail responses.
+
+**Phase 2B-3 (DONE):** Customer signing endpoint `POST /auth/orders/{ref}/declaration`, `SignEuDeclarationRequest` FormRequest, signature PNG stored to private disk, DomPDF PDF generation, `EuDeclarationSigned` mailable (HTML + plain-text), admin download `GET /admin/eu-declarations/{id}/download`, admin acknowledge `POST /admin/eu-declarations/{id}/acknowledge`, customer download `GET /auth/orders/{ref}/declaration/download`, public/customer order response updated with `declaration_signed_name` + `declaration_download_available`.
+
+**Signing endpoint — `POST /api/v1/auth/orders/{ref}/declaration`:**
+- Auth: `auth.customer` Bearer token
+- Ownership: `order.customer_email === customer.email` (case-insensitive); 404 if no match (does not leak order existence)
+- Guards: 404 — declaration not found | 409 — already signed/acknowledged | 422 — validation failure
+- Stores signature PNG to `storage/app/private/eu-declarations/signatures/{uuid}.png`
+- Generates PDF to `storage/app/private/eu-declarations/pdf/{order_ref}.pdf` via DomPDF
+- PDF path stored in `eu_declarations.pdf_path`; PDF generation is non-blocking (failure logged, 200 still returned)
+- Sends `EuDeclarationSigned` mailable to `declaration.customer_email` — non-blocking
+- Returns 200 with status, signed_at, order_ref, has_pdf
+
+**Customer download — `GET /api/v1/auth/orders/{ref}/declaration/download`:**
+- Auth: `auth.customer` Bearer token
+- Ownership: same as above
+- 404 if not signed/acknowledged; 404 if pdf_path null or file missing on disk
+- Returns file download: `DECL-{order_ref}.pdf`
+
+**Admin download — `GET /api/v1/admin/eu-declarations/{id}/download`:**
+- Auth: `auth:sanctum` + `admin.role:super_admin,admin,order_manager`
+- 404 if not signed; 404 if pdf missing; returns `DECL-{order_ref}.pdf`
+
+**Admin acknowledge — `POST /api/v1/admin/eu-declarations/{id}/acknowledge`:**
+- Auth: `auth:sanctum` + `admin.role:super_admin,admin,order_manager`
+- 409 if status !== 'signed'; sets status='acknowledged', admin_acknowledged_at, admin_acknowledged_by
+- Returns updated declaration detail
+
+**Files created/modified (Phase 2B-3):**
+- `app/Http/Requests/SignEuDeclarationRequest.php`
+- `app/Http/Controllers/EuDeclarationController.php`
+- `resources/views/pdf/eu-declaration.blade.php` — Gelangensbestätigung template (§17a UStDV format)
+- `app/Mail/EuDeclarationSigned.php`
+- `resources/views/emails/eu-declaration-signed.blade.php`
+- `resources/views/emails/eu-declaration-signed-text.blade.php`
+- `app/Http/Controllers/Admin/AdminEuDeclarationController.php` (added download + acknowledge)
+- `app/Http/Controllers/OrderController.php` (added declaration_signed_name + declaration_download_available to formatOrder)
+- `routes/api.php` (added 4 new routes)
+
+**Storage — private disk:**
+- `local` disk root: `storage_path('app/private')`
+- Signatures: `storage/app/private/eu-declarations/signatures/{uuid}.png`
+- PDFs: `storage/app/private/eu-declarations/pdf/{order_ref}.pdf`
+- Physical path for serving: `storage_path('app/private/' . $decl->pdf_path)`
+
+**Service:** `App\Services\EuDeclarationService`
+- `shouldRequireForOrder(Order $order): bool`
+- `createForOrder(Order $order, ?Invoice $invoice = null): EuDeclaration` — idempotent
+- `buildGoodsDescription(Order $order): [string, string]` — returns [goods_description, quantity_description]; quantity_description truncated to 300 chars
 
 ### Order Security & Audit Logging
 
@@ -1176,8 +1306,16 @@ const ROLE_ACCESS = {
 `GET /api/v1/orders/{ref}` and `GET /api/v1/orders?email=` both return:
 ```
 ref, status, payment_status, payment_method, subtotal, delivery_cost, total,
-carrier, tracking_number, container_number, estimated_delivery, eta, created_at, items[]
+carrier, carrier_type, tracking_number, container_number, estimated_delivery, eta,
+created_at, items[], shipment_events[],
+declaration_required, declaration_status, declaration_signed_at
 ```
+- `declaration_required` — `true` when `order.is_reverse_charge === true`; always present
+- `declaration_status` — `"pending"` | `"signed"` | `"acknowledged"` | `null` (no declaration exists)
+- `declaration_signed_at` — ISO 8601 timestamp or `null`
+
+Admin order detail (`GET /admin/orders/{id}`) additionally returns:
+- `declaration_id` — the EU declaration record ID (needed to fetch/manage declaration as admin)
 
 ### CORS
 Allowed origins:
@@ -1217,6 +1355,8 @@ Allowed origins:
 | `hero_slides.video_url` | relative: `hero/uuid.mp4` | absolute URL |
 | `invoices.pdf_url` | relative: `invoices/INV-YYYY-NNNN.pdf` | served via `/api/v1/invoices/{id}/download` (auth.customer) |
 | `quote_requests.attachment_path` | relative: `quote-attachments/uuid.ext` | absolute URL — admin only |
+| `eu_declarations.signature_path` | relative: `eu-declarations/uuid.png` | **private disk** — never returned raw in API; `has_signature` boolean returned instead |
+| `eu_declarations.pdf_path` | relative: `eu-declarations/DECL-OKL-XXXXX.pdf` | **private disk** — served via authenticated download endpoint (Phase 2B-3) |
 
 Storage disk: `public` → `storage/app/public/` → symlinked to `public/storage/`
 Conversion: `url(Storage::url($relativePath))` in controller formatters.
@@ -1272,6 +1412,7 @@ Conversion: `url(Storage::url($relativePath))` in controller formatters.
 | `GET /admin/products?trashed=only` | Restore works but no dedicated trashed product list endpoint |
 | Admin customer edit/deactivate | GET /admin/customers list exists; no PUT/DELETE per customer yet |
 | Quote-converted order invoice (bank transfer) | Invoice not auto-created on bank transfer conversion — created automatically on Stripe path via webhook; bank transfer requires admin to manually mark `payment_status=paid` |
+| Phase 2B-3 — EU Declaration signing flow | **DONE** — see Phase 2B-3 section above |
 
 ---
 

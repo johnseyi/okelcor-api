@@ -6,6 +6,8 @@ use App\Http\Controllers\Controller;
 use App\Models\EuDeclaration;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
+use Symfony\Component\HttpFoundation\BinaryFileResponse;
 
 class AdminEuDeclarationController extends Controller
 {
@@ -49,6 +51,69 @@ class AdminEuDeclarationController extends Controller
         return response()->json([
             'data'    => $this->formatDetail($decl),
             'message' => 'success',
+        ]);
+    }
+
+    /**
+     * GET /api/v1/admin/eu-declarations/{id}/download
+     *
+     * Admin downloads the signed EU entry certificate PDF from the private disk.
+     */
+    public function download(int $id): BinaryFileResponse|JsonResponse
+    {
+        $decl = EuDeclaration::findOrFail($id);
+
+        if (! in_array($decl->status, ['signed', 'acknowledged'])) {
+            return response()->json(['message' => 'Declaration has not been signed yet.'], 404);
+        }
+
+        if (! $decl->pdf_path) {
+            Log::warning('Admin EU declaration download: pdf_path is null', [
+                'declaration_id' => $decl->id,
+                'order_ref'      => $decl->order_ref,
+            ]);
+            return response()->json(['message' => 'Declaration PDF is not available yet.'], 404);
+        }
+
+        $path = storage_path('app/private/' . $decl->pdf_path);
+
+        if (! file_exists($path)) {
+            Log::warning('Admin EU declaration download: file missing on disk', [
+                'declaration_id' => $decl->id,
+                'order_ref'      => $decl->order_ref,
+                'pdf_path'       => $decl->pdf_path,
+            ]);
+            return response()->json(['message' => 'Declaration PDF file was not found.'], 404);
+        }
+
+        return response()->download($path, 'DECL-' . $decl->order_ref . '.pdf');
+    }
+
+    /**
+     * POST /api/v1/admin/eu-declarations/{id}/acknowledge
+     *
+     * Admin marks a signed declaration as acknowledged. Status must be 'signed'.
+     */
+    public function acknowledge(Request $request, int $id): JsonResponse
+    {
+        $decl = EuDeclaration::findOrFail($id);
+
+        if ($decl->status !== 'signed') {
+            $msg = $decl->status === 'pending'
+                ? 'Declaration has not been signed yet.'
+                : 'Declaration is already acknowledged.';
+            return response()->json(['message' => $msg], 409);
+        }
+
+        $decl->update([
+            'status'                  => 'acknowledged',
+            'admin_acknowledged_at'   => now(),
+            'admin_acknowledged_by'   => $request->user()->id,
+        ]);
+
+        return response()->json([
+            'data'    => $this->formatDetail($decl->fresh()),
+            'message' => 'Declaration acknowledged.',
         ]);
     }
 
