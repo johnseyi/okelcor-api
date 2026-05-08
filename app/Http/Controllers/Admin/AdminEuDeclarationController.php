@@ -11,12 +11,32 @@ use Symfony\Component\HttpFoundation\BinaryFileResponse;
 
 class AdminEuDeclarationController extends Controller
 {
+    // A declaration is overdue when it has been pending for more than this many days.
+    private const OVERDUE_DAYS = 14;
+
     public function index(Request $request): JsonResponse
     {
         $query = EuDeclaration::orderByDesc('created_at');
 
         if ($request->filled('status')) {
             $query->where('status', $request->status);
+        }
+
+        if ($request->filled('country')) {
+            $query->where('country', $request->country);
+        }
+
+        if ($request->filled('date_from')) {
+            $query->whereDate('created_at', '>=', $request->date_from);
+        }
+
+        if ($request->filled('date_to')) {
+            $query->whereDate('created_at', '<=', $request->date_to);
+        }
+
+        if ($request->boolean('overdue')) {
+            $query->where('status', 'pending')
+                  ->where('created_at', '<=', now()->subDays(self::OVERDUE_DAYS));
         }
 
         if ($request->filled('q')) {
@@ -123,16 +143,24 @@ class AdminEuDeclarationController extends Controller
 
     private function formatList(EuDeclaration $d): array
     {
+        $daysPending = $d->status === 'pending' && $d->created_at
+            ? (int) $d->created_at->diffInDays(now())
+            : null;
+
         return [
-            'id'             => $d->id,
-            'order_ref'      => $d->order_ref,
-            'company_name'   => $d->company_name,
-            'customer_email' => $d->customer_email,
-            'country'        => $d->country,
-            'vat_number'     => $d->vat_number,
-            'status'         => $d->status,
-            'signed_at'      => $d->signed_at?->toIso8601String(),
-            'created_at'     => $d->created_at?->toIso8601String(),
+            'id'               => $d->id,
+            'order_ref'        => $d->order_ref,
+            'company_name'     => $d->company_name,
+            'customer_email'   => $d->customer_email,
+            'country'          => $d->country,
+            'vat_number'       => $d->vat_number,
+            'status'           => $d->status,
+            'days_pending'     => $daysPending,
+            'is_overdue'       => $daysPending !== null && $daysPending >= self::OVERDUE_DAYS,
+            'last_reminded_at' => $d->last_reminded_at?->toIso8601String(),
+            'reminder_count'   => $d->reminder_count,
+            'signed_at'        => $d->signed_at?->toIso8601String(),
+            'created_at'       => $d->created_at?->toIso8601String(),
         ];
     }
 

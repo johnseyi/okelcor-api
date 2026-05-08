@@ -38,6 +38,8 @@ class EuDeclaration extends Model
         'status',
         'admin_acknowledged_at',
         'admin_acknowledged_by',
+        'last_reminded_at',
+        'reminder_count',
         'ip_address',
         'user_agent',
     ];
@@ -48,6 +50,8 @@ class EuDeclaration extends Model
         'issue_date'            => 'date',
         'signed_at'             => 'datetime',
         'admin_acknowledged_at' => 'datetime',
+        'last_reminded_at'      => 'datetime',
+        'reminder_count'        => 'integer',
     ];
 
     protected $hidden = [
