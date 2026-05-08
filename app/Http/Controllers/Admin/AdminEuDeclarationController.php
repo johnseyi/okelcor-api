@@ -3,10 +3,13 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Mail\FinalInvoiceReleased;
 use App\Models\EuDeclaration;
+use App\Models\Invoice;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Mail;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
 
 class AdminEuDeclarationController extends Controller
@@ -121,7 +124,7 @@ class AdminEuDeclarationController extends Controller
      */
     public function acknowledge(Request $request, int $id): JsonResponse
     {
-        $decl = EuDeclaration::findOrFail($id);
+        $decl = EuDeclaration::with('invoice')->findOrFail($id);
 
         if ($decl->status !== 'signed') {
             $msg = $decl->status === 'pending'
@@ -135,6 +138,30 @@ class AdminEuDeclarationController extends Controller
             'admin_acknowledged_at'   => now(),
             'admin_acknowledged_by'   => $request->user()->id,
         ]);
+
+        // Release the linked invoice and notify the customer.
+        // invoice_id may be null on pre-2B-2 declarations; fall back to order_ref lookup.
+        $invoice = $decl->invoice ?? Invoice::where('order_ref', $decl->order_ref)->first();
+
+        if ($invoice && ! $invoice->released_at) {
+            $invoice->update(['released_at' => now()]);
+
+            Log::info('Invoice released after EU declaration acknowledged', [
+                'invoice_number' => $invoice->invoice_number,
+                'order_ref'      => $decl->order_ref,
+                'declaration_id' => $decl->id,
+            ]);
+
+            try {
+                Mail::to($decl->customer_email)->send(new FinalInvoiceReleased($decl->fresh(), $invoice));
+            } catch (\Throwable $e) {
+                Log::error('FinalInvoiceReleased email failed', [
+                    'order_ref'      => $decl->order_ref,
+                    'declaration_id' => $decl->id,
+                    'error'          => $e->getMessage(),
+                ]);
+            }
+        }
 
         return response()->json([
             'data'    => $this->formatDetail($decl->fresh()),
