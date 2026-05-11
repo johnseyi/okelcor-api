@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\Promotion;
+use App\Services\PromotionPricingService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
@@ -67,6 +68,8 @@ class AdminPromotionController extends Controller
     {
         $promotion = Promotion::findOrFail($id);
 
+        $oldDiscountPct = (float) $promotion->discount_pct;
+
         $data = $request->validate([
             'title'                 => ['sometimes', 'string', 'max:200'],
             'subheadline'           => ['nullable', 'string', 'max:300'],
@@ -91,10 +94,26 @@ class AdminPromotionController extends Controller
 
         $promotion->update($data);
 
-        return response()->json([
-            'data'    => $this->format($promotion->fresh()),
+        $fresh              = $promotion->fresh();
+        $recalculatedCount  = null;
+
+        $discountChanged = array_key_exists('discount_pct', $data)
+            && (float) $data['discount_pct'] !== $oldDiscountPct;
+
+        if ($discountChanged && $fresh->brand_name) {
+            $recalculatedCount = (new PromotionPricingService())->recalculateForPromotion($fresh);
+        }
+
+        $response = [
+            'data'    => $this->format($fresh),
             'message' => 'Promotion updated.',
-        ]);
+        ];
+
+        if ($recalculatedCount !== null) {
+            $response['recalculated_products'] = $recalculatedCount;
+        }
+
+        return response()->json($response);
     }
 
     public function toggle(int $id): JsonResponse
