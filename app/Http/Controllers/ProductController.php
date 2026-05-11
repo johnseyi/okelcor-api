@@ -90,7 +90,8 @@ class ProductController extends Controller
             default      => $query->orderByDesc('created_at'),
         };
 
-        $perPage   = min((int) $request->input('per_page', 50), 50);
+        // Accept either per_page or limit (frontend specials component uses limit=8)
+        $perPage   = min((int) $request->input('limit', $request->input('per_page', 50)), 200);
         $paginated = $query->paginate($perPage);
 
         $data = $paginated->map(fn ($p) => $this->formatProduct($p));
@@ -188,6 +189,11 @@ class ProductController extends Controller
             'name'          => $p->name,
             'size'          => $p->size,
             'spec'          => $p->spec,
+            'width'         => $p->width,
+            'height'        => $p->height,
+            'rim'           => $p->rim,
+            'load_index'    => $p->load_index,
+            'speed_rating'  => $p->speed_rating,
             'season'        => $p->season,
             'type'          => $p->type,
             'price'         => (float) $p->price,
@@ -197,6 +203,7 @@ class ProductController extends Controller
             'primary_image' => $p->primary_image ? url('storage/' . $p->primary_image) : null,
             'images'        => $p->images->map(fn ($img) => url('storage/' . $img->path))->values(),
             'is_active'     => (bool) $p->is_active,
+            'stock'         => (int) $p->stock,
             'in_stock'      => (bool) $p->in_stock,
         ];
     }
