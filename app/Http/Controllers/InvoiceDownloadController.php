@@ -7,11 +7,12 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Http\RedirectResponse;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
 
 class InvoiceDownloadController extends Controller
 {
-    public function download(Request $request, Invoice $invoice): BinaryFileResponse|JsonResponse
+    public function download(Request $request, Invoice $invoice): BinaryFileResponse|JsonResponse|RedirectResponse
     {
         $customer = $request->user();
 
@@ -71,10 +72,34 @@ class InvoiceDownloadController extends Controller
             }
         }
 
-        return response()->file(Storage::disk('public')->path($diskPath), [
-            'Content-Type'        => 'application/pdf',
-            'Content-Disposition' => 'inline; filename="' . $invoice->invoice_number . '.pdf"',
+        $absolutePath = Storage::disk('public')->path($diskPath);
+
+        Log::info('Invoice download: serving file', [
+            'invoice_id'   => $invoice->id,
+            'disk_path'    => $diskPath,
+            'absolute'     => $absolutePath,
+            'is_readable'  => is_readable($absolutePath),
+            'filesize'     => file_exists($absolutePath) ? filesize($absolutePath) : 'N/A',
         ]);
+
+        try {
+            return response()->file($absolutePath, [
+                'Content-Type'        => 'application/pdf',
+                'Content-Disposition' => 'inline; filename="' . $invoice->invoice_number . '.pdf"',
+            ]);
+        } catch (\Throwable $e) {
+            Log::error('Invoice download: response()->file() threw an exception', [
+                'invoice_id' => $invoice->id,
+                'disk_path'  => $diskPath,
+                'absolute'   => $absolutePath,
+                'error'      => $e->getMessage(),
+                'class'      => get_class($e),
+            ]);
+
+            // Fall back to a web-server-served redirect when PHP streaming fails.
+            // The auth check has already passed above, so the redirect is safe.
+            return redirect(Storage::disk('public')->url($diskPath));
+        }
     }
 
     /**
