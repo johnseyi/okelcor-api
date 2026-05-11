@@ -106,22 +106,28 @@ Status mapping (internal → customer-facing):
       "invoice_number": "INV-2024-0042",
       "issued_at": "2024-04-01T00:00:00+00:00",
       "due_at": "2024-04-30T00:00:00+00:00",
+      "released_at": "2024-04-01T00:00:00+00:00",
       "amount": 4850.00,
       "status": "paid",
-      "pdf_url": "https://api.okelcor.com/api/v1/invoices/1/download",
-      "order_ref": "OKL-AB123"
+      "order_ref": "OKL-AB123",
+      "tax_treatment": "standard",
+      "is_reverse_charge": false,
+      "download_available": true,
+      "pdf_url": "https://api.okelcor.com/api/v1/invoices/1/download"
     }
   ]
 }
 ```
 Status values: `paid` | `unpaid` | `overdue`
 
-**Visibility gate:** only invoices where `released_at IS NOT NULL` are returned. For EU reverse-charge orders, `released_at` is `null` until admin acknowledges the EU Entry Certificate. Non-reverse-charge invoices have `released_at = issued_at` (immediately visible).
+**Visibility gate:** only invoices where `released_at IS NOT NULL` are returned. For EU reverse-charge orders, `released_at` is `null` until admin acknowledges the EU Entry Certificate. Non-reverse-charge invoices have `released_at = now()` set at payment time (immediately visible).
+
+**Lazy invoice creation:** `GET /auth/invoices` auto-creates any missing invoices for paid orders linked to the customer's email (covers the case where payment webhook fired before the customer account existed). Idempotent — safe to call on every request.
 
 #### GET /api/v1/invoices/{id}/download
 - Middleware: `auth.customer` — requires `Authorization: Bearer {customer_token}`
 - Verifies `invoice.customer_id === authenticated customer.id` — 403 if mismatch
-- Returns file as `Content-Disposition: attachment` with filename `INV-YYYY-NNNN.pdf`
+- Returns file as `Content-Disposition: inline; filename="INV-YYYY-NNNN.pdf"` — opens in browser tab, not forced download
 - Error responses (all JSON):
   - 401 `"Unauthenticated."` — no/invalid token
   - 403 `"You do not have access to this invoice."` — wrong customer

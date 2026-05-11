@@ -55,6 +55,9 @@ class InvoiceDownloadController extends Controller
             return response()->json(['message' => 'Invoice PDF file was not found.'], 404);
         }
 
-        return response()->download($path, $invoice->invoice_number . '.pdf');
+        return response()->file($path, [
+            'Content-Type'        => 'application/pdf',
+            'Content-Disposition' => 'inline; filename="' . $invoice->invoice_number . '.pdf"',
+        ]);
     }
 }

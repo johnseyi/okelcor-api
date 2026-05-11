@@ -6,8 +6,11 @@ use App\Mail\CustomerEmailVerification;
 use App\Mail\CustomerPasswordReset;
 use App\Models\BlockedEntity;
 use App\Models\Customer;
+use App\Models\Invoice;
 use App\Models\LoginHistory;
+use App\Models\Order;
 use App\Models\QuoteRequest;
+use App\Services\InvoiceService;
 use App\Services\SecurityEventService;
 use App\Services\TaxService;
 use App\Services\VatValidationService;
@@ -15,6 +18,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\URL;
@@ -589,20 +593,62 @@ class CustomerAuthController extends Controller
     // -------------------------------------------------------------------------
     public function invoices(Request $request): JsonResponse
     {
-        $invoices = $request->user()
+        $customer = $request->user();
+
+        // Lazy invoice creation: covers the case where the customer paid before
+        // their account existed (Stripe webhook fired with no Customer record) so
+        // InvoiceService skipped creation. Now that they are authenticated we can
+        // create any missing invoices and link them to the account.
+        try {
+            $existingOrderRefs = Invoice::whereIn(
+                'order_ref',
+                Order::where('customer_email', $customer->email)->pluck('ref')
+            )->pluck('order_ref');
+
+            $ordersNeedingInvoice = Order::where('customer_email', $customer->email)
+                ->where('payment_status', 'paid')
+                ->where('status', '!=', 'cancelled')
+                ->whereNotIn('ref', $existingOrderRefs)
+                ->with('items')
+                ->get();
+
+            if ($ordersNeedingInvoice->isNotEmpty()) {
+                $svc = app(InvoiceService::class);
+                foreach ($ordersNeedingInvoice as $order) {
+                    $svc->createForOrder($order);
+                }
+                Log::info('Lazy invoice creation completed', [
+                    'customer_id' => $customer->id,
+                    'created'     => $ordersNeedingInvoice->count(),
+                ]);
+            }
+        } catch (\Throwable $e) {
+            Log::warning('Lazy invoice creation failed in GET /auth/invoices', [
+                'customer_id' => $customer->id,
+                'error'       => $e->getMessage(),
+            ]);
+        }
+
+        $invoices = $customer
             ->invoices()
             ->whereNotNull('released_at')
             ->orderByDesc('issued_at')
             ->get()
             ->map(fn ($inv) => [
-                'id'             => $inv->id,
-                'invoice_number' => $inv->invoice_number,
-                'issued_at'      => $inv->issued_at->toIso8601String(),
-                'due_at'         => $inv->due_at?->toIso8601String(),
-                'amount'         => (float) $inv->amount,
-                'status'         => $inv->status,
-                'pdf_url'        => $inv->pdf_url ? route('invoices.download', $inv->id) : null,
-                'order_ref'      => $inv->order_ref,
+                'id'                 => $inv->id,
+                'invoice_number'     => $inv->invoice_number,
+                'issued_at'          => $inv->issued_at->toIso8601String(),
+                'due_at'             => $inv->due_at?->toIso8601String(),
+                'released_at'        => $inv->released_at?->toIso8601String(),
+                'amount'             => (float) $inv->amount,
+                'status'             => $inv->status,
+                'order_ref'          => $inv->order_ref,
+                'tax_treatment'      => $inv->tax_treatment,
+                'is_reverse_charge'  => (bool) $inv->is_reverse_charge,
+                'download_available' => (bool) $inv->pdf_url,
+                'pdf_url'            => $inv->pdf_url
+                    ? route('invoices.download', $inv->id)
+                    : null,
             ]);
 
         return response()->json(['data' => $invoices]);
