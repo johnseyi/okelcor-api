@@ -6,6 +6,7 @@ use App\Models\Invoice;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
 
 class InvoiceDownloadController extends Controller
@@ -35,29 +36,53 @@ class InvoiceDownloadController extends Controller
 
         if (! $invoice->pdf_url) {
             Log::warning('Invoice download: pdf_url is null', [
-                'invoice_id'          => $invoice->id,
-                'invoice_customer_id' => $invoice->customer_id,
-                'auth_customer_id'    => $customer->id,
-                'pdf_url'             => null,
+                'invoice_id'  => $invoice->id,
+                'customer_id' => $customer->id,
             ]);
             return response()->json(['message' => 'Invoice PDF is not available yet.'], 404);
         }
 
-        $path = storage_path('app/public/' . $invoice->pdf_url);
+        // Normalize pdf_url to a relative disk path regardless of how it was stored.
+        // Historical formats found in production:
+        //   "invoices/INV-2026-0004.pdf"                          → already correct
+        //   "/storage/invoices/INV-2026-0004.pdf"                 → strip /storage/ prefix
+        //   "https://api.okelcor.com/storage/invoices/INV-…pdf"  → extract after /storage/
+        $diskPath = $this->normalizePdfPath($invoice->pdf_url);
 
-        if (! file_exists($path)) {
+        if (! Storage::disk('public')->exists($diskPath)) {
             Log::warning('Invoice download: file missing on disk', [
-                'invoice_id'          => $invoice->id,
-                'invoice_customer_id' => $invoice->customer_id,
-                'auth_customer_id'    => $customer->id,
-                'pdf_url'             => $invoice->pdf_url,
+                'invoice_id'   => $invoice->id,
+                'customer_id'  => $customer->id,
+                'pdf_url_raw'  => $invoice->pdf_url,
+                'pdf_url_norm' => $diskPath,
+                'full_path'    => Storage::disk('public')->path($diskPath),
             ]);
             return response()->json(['message' => 'Invoice PDF file was not found.'], 404);
         }
 
-        return response()->file($path, [
+        return response()->file(Storage::disk('public')->path($diskPath), [
             'Content-Type'        => 'application/pdf',
             'Content-Disposition' => 'inline; filename="' . $invoice->invoice_number . '.pdf"',
         ]);
+    }
+
+    /**
+     * Normalize any pdf_url format to a relative public-disk path.
+     *
+     * Supported inputs → output:
+     *   invoices/INV-2026-0004.pdf                            → invoices/INV-2026-0004.pdf
+     *   /storage/invoices/INV-2026-0004.pdf                   → invoices/INV-2026-0004.pdf
+     *   https://api.okelcor.com/storage/invoices/INV-….pdf   → invoices/INV-2026-0004.pdf
+     *   http://localhost:8000/storage/invoices/INV-….pdf      → invoices/INV-2026-0004.pdf
+     */
+    private function normalizePdfPath(string $raw): string
+    {
+        // Anything containing /storage/ — extract the part after it
+        if (preg_match('#/storage/(.+)$#', $raw, $m)) {
+            return $m[1];
+        }
+
+        // Relative path that may have a stray leading slash
+        return ltrim($raw, '/');
     }
 }
