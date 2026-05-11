@@ -2,7 +2,7 @@
 
 return [
     'bank_transfer' => [
-        'delivery_term'      => 'CIF',
+        'delivery_term'      => 'Incoterms 2020: FOB Germany unless otherwise agreed in writing.',
         'terms'              => '50% against order confirmation and balance against bill of lading.',
         'account_name'       => 'OKELCOR GMBH',
         'account_number'     => '7609068',

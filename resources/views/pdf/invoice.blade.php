@@ -304,7 +304,7 @@
                         <td style="padding:6px 0 0 0;font-size:11px;font-weight:700;color:#171a20;">{{ $order->ref }}</td>
                     </tr>
                     <tr>
-                        <td style="padding:3px 12px 3px 0;font-size:11px;color:#5c5e62;">Delivery Term</td>
+                        <td style="padding:3px 12px 3px 0;font-size:11px;color:#5c5e62;">Delivery / Shipping Terms</td>
                         <td style="padding:3px 0;font-size:11px;color:#171a20;">{{ config('payment.bank_transfer.delivery_term') }}</td>
                     </tr>
                     <tr>

@@ -70,7 +70,7 @@ BIC / SWIFT     : {{ config('payment.bank_transfer.swift_bic') }}
 Bank            : {{ config('payment.bank_transfer.bank_name') }}
 Bank Address    : {{ config('payment.bank_transfer.bank_address') }}
 Payment Ref     : {{ $order->ref }}
-Delivery Term   : {{ config('payment.bank_transfer.delivery_term') }}
+Delivery / Shipping Terms: {{ config('payment.bank_transfer.delivery_term') }}
 
 {{ config('payment.bank_transfer.terms') }}
 

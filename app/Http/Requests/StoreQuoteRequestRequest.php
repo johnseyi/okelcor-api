@@ -48,7 +48,7 @@ class StoreQuoteRequestRequest extends FormRequest
             'delivery_address'      => ['nullable', 'string', 'max:300'],
             'delivery_city'         => ['nullable', 'string', 'max:100'],
             'delivery_postal_code'  => ['nullable', 'string', 'max:30'],
-            'incoterm'              => ['nullable', 'string', 'in:DAP,DDP,EXW,FOB,CIF'],
+            'incoterm'              => ['nullable', 'string', 'in:DAP,DDP,EXW,FOB,CIF,Custom'],
             'incoterm_type'         => ['nullable', 'string', 'in:delivery_terms,shipping_terms'],
 
             // Other

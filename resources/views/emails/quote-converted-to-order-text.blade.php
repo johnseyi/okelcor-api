@@ -58,7 +58,7 @@ BIC / SWIFT     : {{ config('payment.bank_transfer.swift_bic') }}
 Bank            : {{ config('payment.bank_transfer.bank_name') }}
 Bank Address    : {{ config('payment.bank_transfer.bank_address') }}
 Payment Ref     : {{ $order->ref }}
-Delivery Term   : {{ config('payment.bank_transfer.delivery_term') }}
+Delivery / Shipping Terms: @if ($quote->incoterm){{ match(strtoupper($quote->incoterm)) { 'FOB' => 'Incoterms 2020: FOB Germany', 'CIF' => 'Incoterms 2020: CIF destination port — freight and insurance included to destination port.', default => 'Incoterms 2020: ' . strtoupper($quote->incoterm) } }}@else{{ config('payment.bank_transfer.delivery_term') }}@endif
 
 {{ config('payment.bank_transfer.terms') }}
 

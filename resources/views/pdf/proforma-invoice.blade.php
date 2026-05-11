@@ -212,14 +212,21 @@
                         <td class="val">{{ $order->payment_method === 'bank_transfer' ? 'Bank Transfer' : 'Online Payment' }}</td>
                     </tr>
                     @if ($quote?->incoterm)
+                    @php
+                        $incotermDisplay = match(strtoupper($quote->incoterm)) {
+                            'FOB'    => 'Incoterms 2020: FOB Germany',
+                            'CIF'    => 'Incoterms 2020: CIF destination port — freight and insurance included to destination port.',
+                            default  => 'Incoterms 2020: ' . strtoupper($quote->incoterm),
+                        };
+                    @endphp
                     <tr>
-                        <td class="lbl">Incoterm</td>
-                        <td class="val">{{ strtoupper($quote->incoterm) }}@if($quote->incoterm_type) {{ $quote->incoterm_type }}@endif</td>
+                        <td class="lbl">Delivery / Shipping Terms</td>
+                        <td class="val">{{ $incotermDisplay }}</td>
                     </tr>
-                    @elseif ($order->payment_method === 'bank_transfer')
+                    @else
                     <tr>
-                        <td class="lbl">Delivery term</td>
-                        <td class="val">{{ config('payment.bank_transfer.delivery_term', 'CIF') }}</td>
+                        <td class="lbl">Delivery / Shipping Terms</td>
+                        <td class="val">{{ config('payment.bank_transfer.delivery_term') }}</td>
                     </tr>
                     @endif
                 </table>

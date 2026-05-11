@@ -197,7 +197,7 @@
                                 <td style="padding:4px 0;font-family:Arial,Helvetica,sans-serif;font-size:12px;font-weight:700;color:#171a20;">{{ $order->ref }}</td>
                             </tr>
                             <tr>
-                                <td style="padding:4px 12px 4px 0;font-family:Arial,Helvetica,sans-serif;font-size:12px;color:#5c5e62;vertical-align:top;">Delivery Term</td>
+                                <td style="padding:4px 12px 4px 0;font-family:Arial,Helvetica,sans-serif;font-size:12px;color:#5c5e62;vertical-align:top;">Delivery / Shipping Terms</td>
                                 <td style="padding:4px 0;font-family:Arial,Helvetica,sans-serif;font-size:12px;color:#171a20;">{{ config('payment.bank_transfer.delivery_term') }}</td>
                             </tr>
                             <tr>

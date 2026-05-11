@@ -179,8 +179,20 @@
                                 <td style="padding:4px 0;font-family:Arial,Helvetica,sans-serif;font-size:12px;font-weight:700;color:#171a20;">{{ $order->ref }}</td>
                             </tr>
                             <tr>
-                                <td style="padding:4px 12px 4px 0;font-family:Arial,Helvetica,sans-serif;font-size:12px;color:#5c5e62;vertical-align:top;">Delivery Term</td>
-                                <td style="padding:4px 0;font-family:Arial,Helvetica,sans-serif;font-size:12px;color:#171a20;">{{ config('payment.bank_transfer.delivery_term') }}</td>
+                                <td style="padding:4px 12px 4px 0;font-family:Arial,Helvetica,sans-serif;font-size:12px;color:#5c5e62;vertical-align:top;">Delivery / Shipping Terms</td>
+                                <td style="padding:4px 0;font-family:Arial,Helvetica,sans-serif;font-size:12px;color:#171a20;">
+                                    @if ($quote->incoterm)
+                                        @php
+                                            echo match(strtoupper($quote->incoterm)) {
+                                                'FOB'   => 'Incoterms 2020: FOB Germany',
+                                                'CIF'   => 'Incoterms 2020: CIF destination port — freight and insurance included to destination port.',
+                                                default => 'Incoterms 2020: ' . strtoupper($quote->incoterm),
+                                            };
+                                        @endphp
+                                    @else
+                                        {{ config('payment.bank_transfer.delivery_term') }}
+                                    @endif
+                                </td>
                             </tr>
                             <tr>
                                 <td colspan="2" style="padding:10px 0 0 0;font-family:Arial,Helvetica,sans-serif;font-size:12px;color:#5c5e62;line-height:1.5;">{{ config('payment.bank_transfer.terms') }}</td>
