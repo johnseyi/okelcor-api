@@ -29,18 +29,20 @@ class TradeDocumentController extends Controller
 
         $documents = TradeDocument::where('order_id', $order->id)
             ->where('status', 'issued')
-            ->whereIn('type', ['proforma', 'commercial_invoice', 'packing_list'])
+            ->whereIn('type', ['proforma', 'commercial_invoice', 'packing_list', 'delivery_note'])
             ->orderByDesc('issued_at')
             ->get();
 
         return response()->json([
             'data'    => $documents->map(fn ($d) => [
-                'id'         => $d->id,
-                'type'       => $d->type,
-                'number'     => $d->number,
-                'status'     => $d->status,
-                'issued_at'  => $d->issued_at?->toIso8601String(),
-                'has_pdf'    => (bool) $d->getRawOriginal('pdf_path'),
+                'id'                => $d->id,
+                'type'              => $d->type,
+                'number'            => $d->number,
+                'status'            => $d->status,
+                'issued_at'         => $d->issued_at?->toIso8601String(),
+                'sent_at'           => $d->sent_at?->toIso8601String(),
+                'has_pdf'           => (bool) $d->getRawOriginal('pdf_path'),
+                'original_filename' => $d->original_filename,
             ])->values(),
             'message' => 'success',
         ]);
