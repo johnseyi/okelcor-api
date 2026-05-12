@@ -175,6 +175,11 @@ class AdminTradeDocumentController extends Controller
         $order = Order::findOrFail($id);
         $admin = $request->user();
 
+        // Accept both field names — frontend may send document_label or type_label
+        if (!$request->has('type_label') && $request->has('document_label')) {
+            $request->merge(['type_label' => $request->input('document_label')]);
+        }
+
         $request->validate([
             'file'       => ['required', 'file', 'max:20480', 'mimes:pdf,jpg,jpeg,png,xls,xlsx,csv'],
             'type_label' => ['required', 'string', 'max:100'],
