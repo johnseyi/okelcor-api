@@ -30,9 +30,23 @@ class SecurityController extends Controller
             ->orderBy('email')
             ->get();
 
-        $sent    = 0;
-        $skipped = 0;
-        $failed  = 0;
+        $eligible = $users->count();
+        $sent     = 0;
+        $skipped  = 0;
+        $failed   = 0;
+
+        if ($eligible === 0) {
+            Log::info('Admin 2FA notice batch: no eligible recipients', [
+                'performed_by' => $sender->id,
+                'action'       => 'two_factor_notice_sent',
+            ]);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'No admins currently require a 2FA reminder.',
+                'data'    => ['eligible' => 0, 'sent' => 0, 'skipped' => 0, 'failed' => 0],
+            ]);
+        }
 
         foreach ($users as $user) {
             try {
@@ -57,17 +71,24 @@ class SecurityController extends Controller
             }
         }
 
+        $success = $failed === 0;
+        $message = $sent > 0
+            ? "{$sent} admin " . ($sent === 1 ? 'user' : 'users') . " received the 2FA notice."
+            : 'No emails were sent.';
+
         Log::info('Admin 2FA notice batch completed', [
             'performed_by' => $sender->id,
             'action'       => 'two_factor_notice_sent',
+            'eligible'     => $eligible,
             'sent'         => $sent,
             'skipped'      => $skipped,
             'failed'       => $failed,
         ]);
 
         return response()->json([
-            'data'    => compact('sent', 'skipped', 'failed'),
-            'message' => '2FA notice emails sent.',
+            'success' => $success,
+            'message' => $message,
+            'data'    => compact('eligible', 'sent', 'skipped', 'failed'),
         ]);
     }
 
