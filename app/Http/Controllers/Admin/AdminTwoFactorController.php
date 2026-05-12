@@ -1,0 +1,212 @@
+<?php
+
+namespace App\Http\Controllers\Admin;
+
+use App\Http\Controllers\Controller;
+use App\Models\AdminUser;
+use BaconQrCode\Renderer\Image\SvgImageBackEnd;
+use BaconQrCode\Renderer\ImageRenderer;
+use BaconQrCode\Renderer\RendererStyle\RendererStyle;
+use BaconQrCode\Writer;
+use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
+use PragmaRX\Google2FA\Google2FA;
+
+class AdminTwoFactorController extends Controller
+{
+    private Google2FA $google2fa;
+
+    public function __construct()
+    {
+        $this->google2fa = new Google2FA();
+    }
+
+    /**
+     * POST /api/v1/admin/2fa/enable
+     *
+     * Generate a new TOTP secret and return the QR code SVG + secret.
+     * The admin must then confirm with a valid code before 2FA is active.
+     */
+    public function enable(Request $request): JsonResponse
+    {
+        /** @var AdminUser $admin */
+        $admin = $request->user();
+
+        if ($admin->hasTwoFactorEnabled()) {
+            return response()->json(['message' => 'Two-factor authentication is already enabled.'], 409);
+        }
+
+        $secret = $this->google2fa->generateSecretKey();
+
+        $admin->update([
+            'two_factor_secret'       => encrypt($secret),
+            'two_factor_confirmed_at' => null,
+        ]);
+
+        $qrCodeSvg = $this->buildQrSvg($admin->email, $secret);
+
+        Log::info('Admin 2FA enable initiated', [
+            'admin_id' => $admin->id,
+            'email'    => $admin->email,
+        ]);
+
+        return response()->json([
+            'data'    => [
+                'secret'       => $secret,
+                'qr_code_svg'  => $qrCodeSvg,
+            ],
+            'message' => 'Scan the QR code with your authenticator app, then confirm with a valid code.',
+        ]);
+    }
+
+    /**
+     * POST /api/v1/admin/2fa/confirm
+     *
+     * Confirm the TOTP code and activate 2FA. Also generates recovery codes.
+     */
+    public function confirm(Request $request): JsonResponse
+    {
+        $request->validate(['code' => ['required', 'string', 'digits:6']]);
+
+        /** @var AdminUser $admin */
+        $admin = $request->user();
+
+        if ($admin->hasTwoFactorEnabled()) {
+            return response()->json(['message' => 'Two-factor authentication is already confirmed.'], 409);
+        }
+
+        if (! $admin->two_factor_secret) {
+            return response()->json(['message' => 'No pending 2FA setup found. Call enable first.'], 422);
+        }
+
+        $secret = decrypt($admin->two_factor_secret);
+
+        if (! $this->google2fa->verifyKey($secret, $request->code)) {
+            Log::warning('Admin 2FA confirm: invalid code', [
+                'admin_id' => $admin->id,
+                'email'    => $admin->email,
+                'ip'       => $request->ip(),
+            ]);
+            return response()->json(['message' => 'The provided code is invalid.'], 422);
+        }
+
+        $recoveryCodes = $this->generateRecoveryCodes();
+
+        $admin->update([
+            'two_factor_recovery_codes' => encrypt(json_encode($recoveryCodes)),
+            'two_factor_confirmed_at'   => now(),
+        ]);
+
+        Log::info('Admin 2FA enabled and confirmed', [
+            'admin_id' => $admin->id,
+            'email'    => $admin->email,
+            'ip'       => $request->ip(),
+        ]);
+
+        return response()->json([
+            'data'    => ['recovery_codes' => $recoveryCodes],
+            'message' => 'Two-factor authentication has been enabled. Save your recovery codes now — they will not be shown again.',
+        ]);
+    }
+
+    /**
+     * POST /api/v1/admin/2fa/disable
+     *
+     * Disable 2FA. Requires current password for confirmation.
+     */
+    public function disable(Request $request): JsonResponse
+    {
+        $request->validate(['password' => ['required', 'string']]);
+
+        /** @var AdminUser $admin */
+        $admin = $request->user();
+
+        if (! \Illuminate\Support\Facades\Hash::check($request->password, $admin->password)) {
+            return response()->json(['message' => 'The provided password is incorrect.'], 422);
+        }
+
+        if (! $admin->hasTwoFactorEnabled()) {
+            return response()->json(['message' => 'Two-factor authentication is not currently enabled.'], 409);
+        }
+
+        $admin->update([
+            'two_factor_secret'         => null,
+            'two_factor_recovery_codes' => null,
+            'two_factor_confirmed_at'   => null,
+        ]);
+
+        Log::info('Admin 2FA disabled', [
+            'admin_id' => $admin->id,
+            'email'    => $admin->email,
+            'ip'       => $request->ip(),
+        ]);
+
+        return response()->json(['message' => 'Two-factor authentication has been disabled.']);
+    }
+
+    /**
+     * POST /api/v1/admin/2fa/recovery-codes/regenerate
+     *
+     * Regenerate recovery codes. Requires current password.
+     */
+    public function regenerateRecoveryCodes(Request $request): JsonResponse
+    {
+        $request->validate(['password' => ['required', 'string']]);
+
+        /** @var AdminUser $admin */
+        $admin = $request->user();
+
+        if (! \Illuminate\Support\Facades\Hash::check($request->password, $admin->password)) {
+            return response()->json(['message' => 'The provided password is incorrect.'], 422);
+        }
+
+        if (! $admin->hasTwoFactorEnabled()) {
+            return response()->json(['message' => 'Two-factor authentication is not enabled.'], 409);
+        }
+
+        $recoveryCodes = $this->generateRecoveryCodes();
+
+        $admin->update([
+            'two_factor_recovery_codes' => encrypt(json_encode($recoveryCodes)),
+        ]);
+
+        Log::info('Admin 2FA recovery codes regenerated', [
+            'admin_id' => $admin->id,
+            'email'    => $admin->email,
+            'ip'       => $request->ip(),
+        ]);
+
+        return response()->json([
+            'data'    => ['recovery_codes' => $recoveryCodes],
+            'message' => 'Recovery codes regenerated. Save them now — they will not be shown again.',
+        ]);
+    }
+
+    // -------------------------------------------------------------------------
+
+    private function buildQrSvg(string $email, string $secret): string
+    {
+        $url = $this->google2fa->getQRCodeUrl(
+            config('app.name', 'Okelcor Admin'),
+            $email,
+            $secret
+        );
+
+        $renderer = new ImageRenderer(
+            new RendererStyle(200),
+            new SvgImageBackEnd()
+        );
+
+        return (new Writer($renderer))->writeString($url);
+    }
+
+    private function generateRecoveryCodes(): array
+    {
+        return array_map(
+            fn () => strtoupper(Str::random(5)) . '-' . strtoupper(Str::random(5)),
+            range(1, 8)
+        );
+    }
+}

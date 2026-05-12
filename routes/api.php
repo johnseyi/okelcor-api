@@ -47,6 +47,8 @@ use App\Http\Controllers\Admin\AdminPromotionController;
 use App\Http\Controllers\Admin\AdminDashboardController;
 use App\Http\Controllers\Admin\AdminEuDeclarationController;
 use App\Http\Controllers\Admin\AdminTradeDocumentController;
+use App\Http\Controllers\Admin\AdminTwoFactorController;
+use App\Http\Controllers\Admin\AdminLoginTwoFactorController;
 use App\Http\Controllers\EuDeclarationController;
 use App\Http\Controllers\TradeDocumentController;
 use Illuminate\Support\Facades\Route;
@@ -197,6 +199,7 @@ Route::prefix('v1')->group(function () {
     // Admin auth (no Sanctum guard — these issue the token)
     // -------------------------------------------------------------------------
     Route::post('admin/login', [AuthController::class, 'login']);
+    Route::post('admin/login/2fa', AdminLoginTwoFactorController::class);
 
     // -------------------------------------------------------------------------
     // Admin — protected by Sanctum token auth
@@ -214,6 +217,14 @@ Route::prefix('v1')->group(function () {
         // Auth — all authenticated admin users
         Route::post('logout', [AuthController::class, 'logout']);
         Route::get('me', [AuthController::class, 'me']);
+
+        // 2FA management — all authenticated admin users
+        Route::prefix('2fa')->group(function () {
+            Route::post('enable', [AdminTwoFactorController::class, 'enable']);
+            Route::post('confirm', [AdminTwoFactorController::class, 'confirm']);
+            Route::post('disable', [AdminTwoFactorController::class, 'disable']);
+            Route::post('recovery-codes/regenerate', [AdminTwoFactorController::class, 'regenerateRecoveryCodes']);
+        });
 
         // Own profile — all authenticated admin roles
         Route::get('profile', [AdminUserController::class, 'profile']);

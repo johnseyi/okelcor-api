@@ -21,18 +21,29 @@ class AdminUser extends Authenticatable
         'last_login_ip',
         'must_change_password',
         'is_active',
+        'two_factor_secret',
+        'two_factor_recovery_codes',
+        'two_factor_confirmed_at',
     ];
 
     protected $hidden = [
         'password',
+        'two_factor_secret',
+        'two_factor_recovery_codes',
     ];
 
     protected $casts = [
-        'last_login_at'       => 'datetime',
-        'password'            => 'hashed',
-        'must_change_password' => 'boolean',
-        'is_active'           => 'boolean',
+        'last_login_at'            => 'datetime',
+        'two_factor_confirmed_at'  => 'datetime',
+        'password'                 => 'hashed',
+        'must_change_password'     => 'boolean',
+        'is_active'                => 'boolean',
     ];
+
+    public function hasTwoFactorEnabled(): bool
+    {
+        return $this->two_factor_confirmed_at !== null;
+    }
 
     public function media()
     {

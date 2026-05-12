@@ -6,9 +6,11 @@ use App\Http\Controllers\Controller;
 use App\Models\AdminUser;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\RateLimiter;
+use Illuminate\Support\Str;
 
 class AuthController extends Controller
 {
@@ -58,6 +60,24 @@ class AuthController extends Controller
 
         RateLimiter::clear($key);
 
+        // 2FA challenge — do not issue a token yet
+        if ($admin->hasTwoFactorEnabled()) {
+            $sessionToken = (string) Str::uuid();
+            Cache::put('2fa_challenge:' . $sessionToken, $admin->id, now()->addMinutes(5));
+
+            Log::info('Admin login: 2FA challenge issued', [
+                'admin_id' => $admin->id,
+                'email'    => $admin->email,
+                'ip'       => $ip,
+            ]);
+
+            return response()->json([
+                'data'         => ['session_token' => $sessionToken],
+                'requires_2fa' => true,
+                'message'      => 'Two-factor authentication required.',
+            ]);
+        }
+
         $admin->tokens()->delete();
         $token = $admin->createToken('admin-token')->plainTextToken;
 
@@ -97,8 +117,9 @@ class AuthController extends Controller
             'email'               => $u->email,
             'role'                => $u->role,
             'role_label'          => self::roleLabel($u->role),
-            'last_login_at'       => $u->last_login_at?->toIso8601String(),
+            'last_login_at'        => $u->last_login_at?->toIso8601String(),
             'must_change_password' => (bool) $u->must_change_password,
+            'two_factor_enabled'   => $u->hasTwoFactorEnabled(),
         ];
     }
 
