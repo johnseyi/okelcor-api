@@ -4,10 +4,6 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\AdminUser;
-use BaconQrCode\Renderer\Image\SvgImageBackEnd;
-use BaconQrCode\Renderer\ImageRenderer;
-use BaconQrCode\Renderer\RendererStyle\RendererStyle;
-use BaconQrCode\Writer;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
@@ -78,7 +74,11 @@ class AdminTwoFactorController extends Controller
             'two_factor_confirmed_at' => null,
         ]);
 
-        $qrCodeSvg = $this->buildQrSvg($admin->email, $secret);
+        $otpauthUri = $this->google2fa->getQRCodeUrl(
+            config('app.name', 'Okelcor'),
+            $admin->email,
+            $secret
+        );
 
         Log::info('Admin 2FA enable initiated', [
             'admin_id' => $admin->id,
@@ -87,8 +87,8 @@ class AdminTwoFactorController extends Controller
 
         return response()->json([
             'data'    => [
-                'secret'       => $secret,
-                'qr_code_svg'  => $qrCodeSvg,
+                'secret'      => $secret,
+                'otpauth_uri' => $otpauthUri,
             ],
             'message' => 'Scan the QR code with your authenticator app, then confirm with a valid code.',
         ]);
@@ -218,22 +218,6 @@ class AdminTwoFactorController extends Controller
     }
 
     // -------------------------------------------------------------------------
-
-    private function buildQrSvg(string $email, string $secret): string
-    {
-        $url = $this->google2fa->getQRCodeUrl(
-            config('app.name', 'Okelcor Admin'),
-            $email,
-            $secret
-        );
-
-        $renderer = new ImageRenderer(
-            new RendererStyle(200),
-            new SvgImageBackEnd()
-        );
-
-        return (new Writer($renderer))->writeString($url);
-    }
 
     private function generateRecoveryCodes(): array
     {
