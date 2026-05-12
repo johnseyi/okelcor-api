@@ -29,7 +29,7 @@ class TradeDocumentController extends Controller
 
         $documents = TradeDocument::where('order_id', $order->id)
             ->where('status', 'issued')
-            ->whereIn('type', ['proforma', 'commercial_invoice', 'packing_list', 'delivery_note'])
+            ->whereIn('type', ['proforma', 'commercial_invoice', 'packing_list', 'delivery_note', 'shipment_document'])
             ->orderByDesc('issued_at')
             ->get();
 
@@ -37,12 +37,16 @@ class TradeDocumentController extends Controller
             'data'    => $documents->map(fn ($d) => [
                 'id'                => $d->id,
                 'type'              => $d->type,
+                'type_label'        => $d->type_label,
                 'number'            => $d->number,
                 'status'            => $d->status,
                 'issued_at'         => $d->issued_at?->toIso8601String(),
                 'sent_at'           => $d->sent_at?->toIso8601String(),
                 'has_pdf'           => (bool) $d->getRawOriginal('pdf_path'),
+                'has_file'          => (bool) $d->getRawOriginal('file_path'),
                 'original_filename' => $d->original_filename,
+                'mime_type'         => $d->mime_type,
+                'file_size'         => $d->file_size,
             ])->values(),
             'message' => 'success',
         ]);
@@ -70,26 +74,27 @@ class TradeDocumentController extends Controller
             return response()->json(['message' => 'This document is not available for download.'], 404);
         }
 
-        $pdfPath = $document->getRawOriginal('pdf_path');
+        // Generated PDFs use pdf_path; uploaded files use file_path
+        $storedPath = $document->getRawOriginal('pdf_path')
+            ?? $document->getRawOriginal('file_path');
 
-        if (! $pdfPath) {
-            return response()->json(['message' => 'Document PDF is not available yet.'], 404);
+        if (! $storedPath) {
+            return response()->json(['message' => 'Document file is not available yet.'], 404);
         }
 
-        $fullPath = storage_path('app/private/' . $pdfPath);
+        $fullPath = storage_path('app/private/' . $storedPath);
 
         if (! file_exists($fullPath)) {
             Log::warning('Customer trade document download: file missing', [
-                'document_id'  => $document->id,
-                'customer_id'  => $customer->id,
-                'pdf_path'     => $pdfPath,
+                'document_id' => $document->id,
+                'customer_id' => $customer->id,
+                'stored_path' => $storedPath,
             ]);
             return response()->json(['message' => 'Document file was not found.'], 404);
         }
 
-        $filename = $document->number
-            ? $document->number . '.pdf'
-            : 'document.pdf';
+        $filename = $document->original_filename
+            ?? ($document->number ? $document->number . '.pdf' : 'document.pdf');
 
         return response()->download($fullPath, $filename);
     }

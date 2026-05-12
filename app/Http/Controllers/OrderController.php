@@ -116,20 +116,24 @@ class OrderController extends Controller
                 'subtotal'     => (float) $i->line_total,
             ])->values(),
 
-            // Trade documents — issued generated documents only (no raw uploads)
+            // Trade documents — issued documents visible to the customer
             'trade_documents' => $o->relationLoaded('tradeDocuments')
                 ? $o->tradeDocuments
                     ->filter(fn ($d) => $d->status === 'issued'
-                        && in_array($d->type, ['proforma', 'commercial_invoice', 'packing_list', 'delivery_note'], true))
+                        && in_array($d->type, ['proforma', 'commercial_invoice', 'packing_list', 'delivery_note', 'shipment_document'], true))
                     ->map(fn ($d) => [
                         'id'                => $d->id,
                         'type'              => $d->type,
+                        'type_label'        => $d->type_label,
                         'number'            => $d->number,
                         'status'            => $d->status,
                         'has_pdf'           => (bool) $d->getRawOriginal('pdf_path'),
+                        'has_file'          => (bool) $d->getRawOriginal('file_path'),
                         'issued_at'         => $d->issued_at?->toIso8601String(),
                         'sent_at'           => $d->sent_at?->toIso8601String(),
                         'original_filename' => $d->original_filename,
+                        'mime_type'         => $d->mime_type,
+                        'file_size'         => $d->file_size,
                     ])->values()
                 : [],
         ];

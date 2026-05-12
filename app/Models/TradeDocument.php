@@ -11,6 +11,7 @@ class TradeDocument extends Model
         'order_id',
         'order_ref',
         'type',
+        'type_label',
         'number',
         'pdf_path',
         'file_path',

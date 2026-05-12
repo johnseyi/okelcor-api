@@ -10,6 +10,8 @@ use App\Services\TradeDocumentService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
 
 class AdminTradeDocumentController extends Controller
@@ -164,6 +166,131 @@ class AdminTradeDocumentController extends Controller
     }
 
     /**
+     * POST /api/v1/admin/orders/{id}/trade-documents/upload
+     *
+     * Upload a shipment document (Bill of Lading, CMR, etc.) to an order.
+     */
+    public function uploadShipmentDocument(Request $request, int $id): JsonResponse
+    {
+        $order = Order::findOrFail($id);
+        $admin = $request->user();
+
+        $request->validate([
+            'file'       => ['required', 'file', 'max:20480', 'mimes:pdf,jpg,jpeg,png,xls,xlsx,csv'],
+            'type_label' => ['required', 'string', 'max:100'],
+            'notes'      => ['nullable', 'string', 'max:500'],
+        ]);
+
+        $uploaded = $request->file('file');
+
+        // Build a safe, collision-free filename
+        $originalName  = $uploaded->getClientOriginalName();
+        $safeName      = Str::slug(pathinfo($originalName, PATHINFO_FILENAME), '_');
+        $ext           = strtolower($uploaded->getClientOriginalExtension());
+        $storedName    = now()->format('YmdHis') . '_' . $safeName . '.' . $ext;
+        $storagePath   = 'trade-documents/uploads/' . $order->ref . '/' . $storedName;
+
+        try {
+            Storage::disk('local')->put($storagePath, file_get_contents($uploaded->getRealPath()));
+        } catch (\Throwable $e) {
+            Log::error('Shipment document upload failed (storage write)', [
+                'order_id'  => $id,
+                'order_ref' => $order->ref,
+                'error'     => $e->getMessage(),
+            ]);
+            return response()->json(['message' => 'File could not be saved. Please try again.'], 500);
+        }
+
+        $document = TradeDocument::create([
+            'order_id'          => $order->id,
+            'order_ref'         => $order->ref,
+            'type'              => 'shipment_document',
+            'type_label'        => $request->input('type_label'),
+            'status'            => 'issued',
+            'file_path'         => $storagePath,
+            'original_filename' => $originalName,
+            'mime_type'         => $uploaded->getClientMimeType(),
+            'file_size'         => $uploaded->getSize(),
+            'notes'             => $request->input('notes'),
+            'issued_by'         => $admin?->id,
+            'issued_at'         => now(),
+        ]);
+
+        try {
+            OrderLog::create([
+                'order_id'         => $order->id,
+                'order_ref'        => $order->ref,
+                'admin_user_id'    => $admin?->id,
+                'admin_user_email' => $admin?->email,
+                'action'           => 'document_uploaded',
+                'new_value'        => $request->input('type_label'),
+                'notes'            => 'Shipment document uploaded: ' . $originalName,
+                'ip_address'       => $request->ip(),
+            ]);
+        } catch (\Throwable $e) {
+            Log::warning('OrderLog write failed (shipment document upload)', [
+                'order_ref' => $order->ref,
+                'error'     => $e->getMessage(),
+            ]);
+        }
+
+        return response()->json([
+            'data'    => $this->formatDocument($document),
+            'message' => 'Document uploaded successfully.',
+        ], 201);
+    }
+
+    /**
+     * DELETE /api/v1/admin/trade-documents/{id}
+     *
+     * Delete an uploaded shipment document.
+     * Only shipment_document type may be deleted — generated PDFs are protected.
+     */
+    public function destroy(Request $request, int $id): JsonResponse
+    {
+        $document = TradeDocument::findOrFail($id);
+        $admin    = $request->user();
+
+        if ($document->type !== 'shipment_document') {
+            return response()->json([
+                'message' => 'Only uploaded shipment documents can be deleted.',
+            ], 422);
+        }
+
+        $filePath = $document->getRawOriginal('file_path');
+        if ($filePath && Storage::disk('local')->exists($filePath)) {
+            Storage::disk('local')->delete($filePath);
+        }
+
+        $orderRef  = $document->order_ref;
+        $orderId   = $document->order_id;
+        $typeLabel = $document->type_label;
+        $filename  = $document->original_filename;
+
+        $document->delete();
+
+        try {
+            OrderLog::create([
+                'order_id'         => $orderId,
+                'order_ref'        => $orderRef,
+                'admin_user_id'    => $admin?->id,
+                'admin_user_email' => $admin?->email,
+                'action'           => 'document_deleted',
+                'new_value'        => $typeLabel,
+                'notes'            => 'Shipment document deleted: ' . $filename,
+                'ip_address'       => $request->ip(),
+            ]);
+        } catch (\Throwable $e) {
+            Log::warning('OrderLog write failed (shipment document delete)', [
+                'order_ref' => $orderRef,
+                'error'     => $e->getMessage(),
+            ]);
+        }
+
+        return response()->json(['message' => 'Document deleted.']);
+    }
+
+    /**
      * GET /api/v1/admin/orders/{id}/trade-documents
      *
      * List all trade documents attached to an order.
@@ -221,6 +348,7 @@ class AdminTradeDocumentController extends Controller
             'order_id'          => $d->order_id,
             'order_ref'         => $d->order_ref,
             'type'              => $d->type,
+            'type_label'        => $d->type_label,
             'number'            => $d->number,
             'status'            => $d->status,
             'has_pdf'           => (bool) $d->getRawOriginal('pdf_path'),

@@ -395,8 +395,10 @@ Route::prefix('v1')->group(function () {
             Route::post('orders/{id}/trade-documents/proforma', [AdminTradeDocumentController::class, 'generateProforma']);
             Route::post('orders/{id}/generate-packing-list', [AdminTradeDocumentController::class, 'generatePackingList']);
             Route::post('orders/{id}/generate-delivery-note', [AdminTradeDocumentController::class, 'generateDeliveryNote']);
+            Route::post('orders/{id}/trade-documents/upload', [AdminTradeDocumentController::class, 'uploadShipmentDocument']);
             Route::get('orders/{id}/trade-documents', [AdminTradeDocumentController::class, 'indexForOrder']);
             Route::get('trade-documents/{id}/download', [AdminTradeDocumentController::class, 'download']);
+            Route::delete('trade-documents/{id}', [AdminTradeDocumentController::class, 'destroy']);
         });
 
         // -----------------------------------------------------------------
