@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Models\AdminUser;
 use App\Models\Customer;
 use App\Models\LoginHistory;
 use App\Models\SecurityEvent;
@@ -12,6 +13,26 @@ use Illuminate\Support\Facades\DB;
 
 class SecurityController extends Controller
 {
+    // ── GET /admin/security/2fa-status ───────────────────────────────────────
+
+    public function twoFactorStatus(): JsonResponse
+    {
+        $users = AdminUser::orderBy('name')->get();
+
+        return response()->json([
+            'data' => $users->map(fn (AdminUser $u) => [
+                'id'                    => $u->id,
+                'name'                  => $u->name,
+                'email'                 => $u->email,
+                'role'                  => $u->role,
+                'is_active'             => (bool) $u->is_active,
+                'two_factor_enabled'    => $u->hasTwoFactorEnabled(),
+                'two_factor_enabled_at' => $u->two_factor_confirmed_at?->toIso8601String(),
+                'last_login_at'         => $u->last_login_at?->toIso8601String(),
+            ])->values(),
+        ]);
+    }
+
     // ── GET /admin/security/summary ───────────────────────────────────────────
 
     public function summary(): JsonResponse

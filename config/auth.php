@@ -123,4 +123,20 @@ return [
 
     'password_timeout' => env('AUTH_PASSWORD_TIMEOUT', 10800),
 
+    /*
+    |--------------------------------------------------------------------------
+    | Admin 2FA Enforcement
+    |--------------------------------------------------------------------------
+    |
+    | When admin_2fa_enforced is true, admin users who have not confirmed 2FA
+    | are blocked from all admin routes except /me, /logout, /2fa/*, /security/*.
+    |
+    | Set admin_2fa_grace_until to a date (YYYY-MM-DD) to allow a grace period
+    | before enforcement kicks in. Leave null to enforce immediately.
+    |
+    */
+
+    'admin_2fa_enforced'    => env('ADMIN_2FA_ENFORCED', false),
+    'admin_2fa_grace_until' => env('ADMIN_2FA_GRACE_UNTIL'),
+
 ];

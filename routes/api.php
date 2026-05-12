@@ -209,7 +209,7 @@ Route::prefix('v1')->group(function () {
     //   editor       — content only (products, articles, categories, hero slides, brands, media, settings)
     //   order_manager — operations only (orders, quote requests, contacts, newsletter)
     // -------------------------------------------------------------------------
-    Route::middleware(['auth:sanctum', 'auth.admin'])->prefix('admin')->group(function () {
+    Route::middleware(['auth:sanctum', 'auth.admin', 'ensure.admin.2fa'])->prefix('admin')->group(function () {
 
         // Dashboard — all authenticated admin roles
         Route::get('dashboard', [AdminDashboardController::class, 'stats']);
@@ -407,6 +407,7 @@ Route::prefix('v1')->group(function () {
         Route::middleware('admin.role:super_admin,admin')->group(function () {
             Route::get('security/summary', [SecurityController::class, 'summary']);
             Route::get('security/events', [SecurityController::class, 'events']);
+            Route::get('security/2fa-status', [SecurityController::class, 'twoFactorStatus']);
         });
 
         // -----------------------------------------------------------------

@@ -210,10 +210,12 @@ class AdminUserController extends Controller
             'email'               => $u->email,
             'role'                => $u->role,
             'role_label'          => AuthController::roleLabel($u->role),
-            'is_active'           => (bool) $u->is_active,
-            'must_change_password' => (bool) $u->must_change_password,
-            'last_login_at'       => $u->last_login_at?->toIso8601String(),
-            'created_at'          => $u->created_at?->toIso8601String(),
+            'is_active'              => (bool) $u->is_active,
+            'must_change_password'   => (bool) $u->must_change_password,
+            'two_factor_enabled'     => $u->hasTwoFactorEnabled(),
+            'two_factor_enabled_at'  => $u->two_factor_confirmed_at?->toIso8601String(),
+            'last_login_at'          => $u->last_login_at?->toIso8601String(),
+            'created_at'             => $u->created_at?->toIso8601String(),
         ];
     }
 }

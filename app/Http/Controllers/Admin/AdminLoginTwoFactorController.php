@@ -156,9 +156,10 @@ class AdminLoginTwoFactorController extends Controller
             'email'               => $u->email,
             'role'                => $u->role,
             'role_label'          => AuthController::roleLabel($u->role),
-            'last_login_at'       => $u->last_login_at?->toIso8601String(),
-            'must_change_password' => (bool) $u->must_change_password,
-            'two_factor_enabled'  => $u->hasTwoFactorEnabled(),
+            'last_login_at'         => $u->last_login_at?->toIso8601String(),
+            'must_change_password'  => (bool) $u->must_change_password,
+            'two_factor_enabled'    => $u->hasTwoFactorEnabled(),
+            'two_factor_enabled_at' => $u->two_factor_confirmed_at?->toIso8601String(),
         ];
     }
 }
