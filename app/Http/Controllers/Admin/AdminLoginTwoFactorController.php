@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\AdminUser;
+use App\Support\AdminPermissions;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
@@ -160,6 +161,7 @@ class AdminLoginTwoFactorController extends Controller
             'must_change_password'  => (bool) $u->must_change_password,
             'two_factor_enabled'    => $u->hasTwoFactorEnabled(),
             'two_factor_enabled_at' => $u->two_factor_confirmed_at?->toIso8601String(),
+            'permissions'           => AdminPermissions::for($u->role),
         ];
     }
 }

@@ -28,10 +28,11 @@ return Application::configure(basePath: dirname(__DIR__))
 
         // Role-based access control alias for admin routes
         $middleware->alias([
-            'admin.role'      => \App\Http\Middleware\CheckAdminRole::class,
-            'auth.customer'   => \App\Http\Middleware\CustomerAuth::class,
-            'auth.admin'      => \App\Http\Middleware\EnsureAdminToken::class,
+            'admin.role'       => \App\Http\Middleware\CheckAdminRole::class,
+            'auth.customer'    => \App\Http\Middleware\CustomerAuth::class,
+            'auth.admin'       => \App\Http\Middleware\EnsureAdminToken::class,
             'ensure.admin.2fa' => \App\Http\Middleware\EnsureAdminTwoFactorEnabled::class,
+            'permission'       => \App\Http\Middleware\CheckPermission::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {

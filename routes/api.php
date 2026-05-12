@@ -233,8 +233,11 @@ Route::prefix('v1')->group(function () {
         Route::put('profile/password', [AdminUserController::class, 'changePassword']);
         Route::put('change-password', [AdminUserController::class, 'changePassword']);
 
-        // User management — super_admin, admin
-        Route::middleware('admin.role:super_admin,admin')->group(function () {
+        // -----------------------------------------------------------------
+        // Admin user management — admins.manage (super_admin only)
+        // HARDENED: admin role can no longer manage other admin users
+        // -----------------------------------------------------------------
+        Route::middleware('permission:admins.manage')->group(function () {
             Route::get('users', [AdminUserController::class, 'index']);
             Route::post('users', [AdminUserController::class, 'store']);
             Route::get('users/{id}', [AdminUserController::class, 'show']);
@@ -244,20 +247,19 @@ Route::prefix('v1')->group(function () {
         });
 
         // -----------------------------------------------------------------
-        // Content routes — super_admin, admin, editor
+        // Content — products.edit (super_admin, admin, editor, content_manager)
         // -----------------------------------------------------------------
-        // Import / export — super_admin and admin only
-        Route::middleware('admin.role:super_admin,admin')->group(function () {
+
+        // Bulk import / destructive — products.import (super_admin, admin)
+        Route::middleware('permission:products.import')->group(function () {
             Route::post('products/import', [ProductImportController::class, 'import']);
             Route::get('products/export', [ProductImportController::class, 'export']);
             Route::delete('products/all', [AdminProductController::class, 'destroyAll']);
-
-            // FET engine bulk import
             Route::post('fet/engines/import', [AdminFetEngineController::class, 'import']);
         });
 
-        Route::middleware('admin.role:super_admin,admin,editor')->group(function () {
-
+        // Content CRUD — products.edit
+        Route::middleware('permission:products.edit')->group(function () {
             // Products
             Route::post('products/bulk-stock', [AdminProductController::class, 'bulkStock']);
             Route::post('products/{id}/restore', [AdminProductController::class, 'restore']);
@@ -269,7 +271,7 @@ Route::prefix('v1')->group(function () {
             Route::post('products/{product}/images', [AdminProductController::class, 'uploadImages']);
             Route::delete('products/{product}/images/{image}', [AdminProductController::class, 'deleteImage']);
 
-            // Articles
+            // Articles — articles.manage roles are same as products.edit
             Route::post('articles/{id}/restore', [AdminArticleController::class, 'restore']);
             Route::get('articles', [AdminArticleController::class, 'index']);
             Route::post('articles', [AdminArticleController::class, 'store']);
@@ -298,12 +300,12 @@ Route::prefix('v1')->group(function () {
             Route::post('brands/{id}/logo', [AdminBrandController::class, 'uploadLogo']);
             Route::delete('brands/{id}', [AdminBrandController::class, 'destroy']);
 
-            // Media
+            // Media — media.upload roles match products.edit
             Route::get('media', [MediaController::class, 'index']);
             Route::post('media', [MediaController::class, 'store']);
             Route::delete('media/{id}', [MediaController::class, 'destroy']);
 
-            // Site settings
+            // Site settings — settings.manage roles match products.edit
             Route::get('settings', [AdminSettingController::class, 'index']);
             Route::put('settings', [AdminSettingController::class, 'update']);
 
@@ -324,65 +326,97 @@ Route::prefix('v1')->group(function () {
         });
 
         // -----------------------------------------------------------------
-        // Operations routes — super_admin, admin, order_manager
+        // Orders — granular permission gates
         // -----------------------------------------------------------------
-        Route::middleware('admin.role:super_admin,admin,order_manager')->group(function () {
 
-            // Quote requests
+        // Read — orders.view (super_admin, admin, order_manager, sales_manager)
+        Route::middleware('permission:orders.view')->group(function () {
+            Route::get('orders', [AdminOrderController::class, 'index']);
+            Route::get('orders/{id}', [AdminOrderController::class, 'show']);
+            Route::get('orders/export', [OrderImportController::class, 'export']);
+        });
+
+        // Write — orders.update (super_admin, admin, order_manager)
+        Route::middleware('permission:orders.update')->group(function () {
+            Route::post('orders/import', [OrderImportController::class, 'import']);
+            Route::put('orders/{id}', [AdminOrderController::class, 'update']);
+            Route::patch('orders/{id}/status', [AdminOrderController::class, 'updateStatus']);
+            Route::post('orders/{id}/shipment-events', [AdminOrderShipmentEventController::class, 'store']);
+            Route::put('orders/{id}/shipment-events/{event}', [AdminOrderShipmentEventController::class, 'update']);
+            Route::delete('orders/{id}/shipment-events/{event}', [AdminOrderShipmentEventController::class, 'destroy']);
+        });
+
+        // Delete — orders.delete (super_admin only)
+        Route::middleware('permission:orders.delete')->group(function () {
+            Route::delete('orders/{id}', [AdminOrderController::class, 'destroy']);
+        });
+
+        // Mark paid — payments.mark_paid (super_admin, admin, order_manager)
+        Route::middleware('permission:payments.mark_paid')->group(function () {
+            Route::post('orders/{id}/mark-paid', [AdminOrderController::class, 'markPaid']);
+        });
+
+        // -----------------------------------------------------------------
+        // Quotes — quotes.manage (super_admin, admin, order_manager, sales_manager)
+        // -----------------------------------------------------------------
+        Route::middleware('permission:quotes.manage')->group(function () {
             Route::get('quote-requests', [AdminQuoteRequestController::class, 'index']);
             Route::get('quote-requests/{id}', [AdminQuoteRequestController::class, 'show']);
             Route::put('quote-requests/{id}', [AdminQuoteRequestController::class, 'update']);
             Route::patch('quote-requests/{id}/status', [AdminQuoteRequestController::class, 'updateStatus']);
             Route::post('quote-requests/{id}/convert-to-order', [AdminQuoteRequestController::class, 'convertToOrder']);
-
-            // Quote attachments — streamed through controller, never via public URL
+            // Attachments streamed through controller — never via public URL
             Route::get('quote-attachments/{id}/download', [AdminQuoteAttachmentController::class, 'download']);
+        });
 
-            // Contact messages
+        // -----------------------------------------------------------------
+        // Contacts — contacts.view (super_admin, admin, order_manager, support)
+        // -----------------------------------------------------------------
+        Route::middleware('permission:contacts.view')->group(function () {
             Route::get('contact-messages', [AdminContactController::class, 'index']);
             Route::get('contact-messages/{id}', [AdminContactController::class, 'show']);
             Route::patch('contact-messages/{id}/status', [AdminContactController::class, 'updateStatus']);
+        });
 
-            // Orders
-            Route::post('orders/import', [OrderImportController::class, 'import']);
-            Route::get('orders/export', [OrderImportController::class, 'export']);
-            Route::get('orders', [AdminOrderController::class, 'index']);
-            Route::get('orders/{id}', [AdminOrderController::class, 'show']);
-            Route::put('orders/{id}', [AdminOrderController::class, 'update']);
-            Route::patch('orders/{id}/status', [AdminOrderController::class, 'updateStatus']);
-            Route::post('orders/{id}/mark-paid', [AdminOrderController::class, 'markPaid']);
-            Route::post('orders/{id}/shipment-events', [AdminOrderShipmentEventController::class, 'store']);
-            Route::put('orders/{id}/shipment-events/{event}', [AdminOrderShipmentEventController::class, 'update']);
-            Route::delete('orders/{id}/shipment-events/{event}', [AdminOrderShipmentEventController::class, 'destroy']);
-            Route::middleware('admin.role:super_admin')->group(function () {
-                Route::delete('orders/{id}', [AdminOrderController::class, 'destroy']);
-            });
-
-            // EU entry certificates (Gelangensbestätigung) — reverse-charge orders
+        // -----------------------------------------------------------------
+        // EU entry certificates — eu_declarations.manage
+        // -----------------------------------------------------------------
+        Route::middleware('permission:eu_declarations.manage')->group(function () {
             Route::get('eu-declarations', [AdminEuDeclarationController::class, 'index']);
             Route::get('eu-declarations/{id}', [AdminEuDeclarationController::class, 'show']);
             Route::get('eu-declarations/{id}/download', [AdminEuDeclarationController::class, 'download']);
             Route::match(['post', 'patch'], 'eu-declarations/{id}/acknowledge', [AdminEuDeclarationController::class, 'acknowledge']);
+        });
 
-            // Trade documents
+        // -----------------------------------------------------------------
+        // Trade documents — trade_documents.manage
+        // -----------------------------------------------------------------
+        Route::middleware('permission:trade_documents.manage')->group(function () {
             Route::post('orders/{id}/trade-documents/proforma', [AdminTradeDocumentController::class, 'generateProforma']);
             Route::get('orders/{id}/trade-documents', [AdminTradeDocumentController::class, 'indexForOrder']);
             Route::get('trade-documents/{id}/download', [AdminTradeDocumentController::class, 'download']);
+        });
 
-            // Newsletter subscribers
+        // -----------------------------------------------------------------
+        // Newsletter — newsletter.manage
+        // -----------------------------------------------------------------
+        Route::middleware('permission:newsletter.manage')->group(function () {
             Route::get('newsletter', [AdminNewsletterController::class, 'index']);
             Route::delete('newsletter/{email}', [AdminNewsletterController::class, 'destroy']);
+        });
 
-            // Supplier intelligence
+        // -----------------------------------------------------------------
+        // Supplier intelligence — supplier.view
+        // -----------------------------------------------------------------
+        Route::middleware('permission:supplier.view')->group(function () {
             Route::get('supplier/search', [SupplierController::class, 'search']);
             Route::get('supplier/alibaba-link', [SupplierController::class, 'alibabaLink']);
         });
 
         // -----------------------------------------------------------------
-        // Customer management — super_admin, admin
+        // Customer management — customers.manage (super_admin, admin)
         // -----------------------------------------------------------------
-        Route::middleware('admin.role:super_admin,admin')->group(function () {
-            Route::get('customers/export', [AdminCustomerController::class, 'export']);
+        Route::middleware('permission:customers.manage')->group(function () {
             Route::get('customers', [AdminCustomerController::class, 'index']);
             Route::get('customers/{id}', [AdminCustomerController::class, 'show']);
             Route::patch('customers/{id}', [AdminCustomerController::class, 'update']);
@@ -394,37 +428,39 @@ Route::prefix('v1')->group(function () {
             Route::post('customers/{id}/logout-all', [AdminCustomerController::class, 'logoutAll']);
             Route::post('customers/{id}/force-password-reset', [AdminCustomerController::class, 'forcePasswordReset']);
             Route::get('customers/{id}/sessions', [AdminCustomerController::class, 'sessions']);
+            Route::get('customers/export', [AdminCustomerController::class, 'export']);
         });
 
-        // Customer CSV import — super_admin only
-        Route::middleware('admin.role:super_admin')->group(function () {
+        // Customer CSV import — customers.import (super_admin only)
+        Route::middleware('permission:customers.import')->group(function () {
             Route::post('customers/import', [CustomerImportController::class, 'import']);
         });
 
         // -----------------------------------------------------------------
-        // Security dashboard — super_admin, admin
+        // Security dashboard — security.view (super_admin, admin)
         // -----------------------------------------------------------------
-        Route::middleware('admin.role:super_admin,admin')->group(function () {
+        Route::middleware('permission:security.view')->group(function () {
             Route::get('security/summary', [SecurityController::class, 'summary']);
             Route::get('security/events', [SecurityController::class, 'events']);
             Route::get('security/2fa-status', [SecurityController::class, 'twoFactorStatus']);
         });
 
-        Route::middleware('admin.role:super_admin')->group(function () {
+        // Security management — security.manage (super_admin only)
+        Route::middleware('permission:security.manage')->group(function () {
             Route::post('security/send-2fa-notices', [SecurityController::class, 'sendTwoFactorNotices']);
         });
 
         // -----------------------------------------------------------------
-        // eBay listing sync — super_admin, admin
+        // eBay listing sync — ebay.manage (super_admin, admin)
         // -----------------------------------------------------------------
-        Route::middleware('admin.role:super_admin,admin')->group(function () {
+        Route::middleware('permission:ebay.manage')->group(function () {
             Route::get('ebay/auth-url', [EbayListingController::class, 'authUrl']);
             Route::get('ebay/listings', [EbayListingController::class, 'listings']);
             Route::post('ebay/sync-all', [EbayListingController::class, 'syncAll']);
             // Canonical URLs (per frontend spec)
             Route::post('products/{id}/ebay/list', [EbayListingController::class, 'listProduct']);
             Route::delete('products/{id}/ebay/remove', [EbayListingController::class, 'removeListing']);
-            // Legacy aliases (keep for backward compat)
+            // Legacy aliases (backward compat)
             Route::post('products/{id}/list-on-ebay', [EbayListingController::class, 'listProduct']);
             Route::delete('products/{id}/ebay-listing', [EbayListingController::class, 'removeListing']);
         });

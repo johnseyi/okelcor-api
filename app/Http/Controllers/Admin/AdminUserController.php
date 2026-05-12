@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Mail\AdminWelcome;
 use App\Models\AdminUser;
+use App\Support\AdminPermissions;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
@@ -97,7 +98,7 @@ class AdminUserController extends Controller
             'first_name' => ['nullable', 'string', 'max:100'],
             'last_name'  => ['nullable', 'string', 'max:100'],
             'email'      => ['required', 'email', 'max:255', 'unique:admin_users,email'],
-            'role'       => ['required', Rule::in(['super_admin', 'admin', 'editor', 'order_manager'])],
+            'role'       => ['required', Rule::in(AdminPermissions::ROLES)],
         ]);
 
         $temporaryPassword = Str::password(16);
@@ -167,7 +168,7 @@ class AdminUserController extends Controller
             'last_name'    => ['sometimes', 'nullable', 'string', 'max:100'],
             'display_name' => ['sometimes', 'nullable', 'string', 'max:100'],
             'email'        => ['sometimes', 'email', 'max:255', Rule::unique('admin_users', 'email')->ignore($id)],
-            'role'         => ['sometimes', Rule::in(['super_admin', 'admin', 'editor', 'order_manager'])],
+            'role'         => ['sometimes', Rule::in(AdminPermissions::ROLES)],
             'password'     => ['sometimes', 'confirmed', Password::min(8)->letters()->numbers()],
             'is_active'    => ['sometimes', 'boolean'],
         ]);
@@ -214,6 +215,7 @@ class AdminUserController extends Controller
             'must_change_password'   => (bool) $u->must_change_password,
             'two_factor_enabled'     => $u->hasTwoFactorEnabled(),
             'two_factor_enabled_at'  => $u->two_factor_confirmed_at?->toIso8601String(),
+            'permissions'            => AdminPermissions::for($u->role),
             'last_login_at'          => $u->last_login_at?->toIso8601String(),
             'created_at'             => $u->created_at?->toIso8601String(),
         ];
