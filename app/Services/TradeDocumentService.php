@@ -112,7 +112,7 @@ class TradeDocumentService
         $order->items->each(fn ($item) => $item->loadMissing('product'));
 
         $quote   = QuoteRequest::where('order_id', $order->id)->first();
-        $invoice = Invoice::where('order_id', $order->id)->first();
+        $invoice = Invoice::where('order_ref', $order->ref)->first();
 
         $document = DB::transaction(function () use ($order, $admin) {
             $number = $this->sequentialNumber('packing_list');

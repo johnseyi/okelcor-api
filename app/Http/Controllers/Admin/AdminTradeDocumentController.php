@@ -68,7 +68,19 @@ class AdminTradeDocumentController extends Controller
         $order = Order::with(['items', 'shipmentEvents'])->findOrFail($id);
         $admin = $request->user();
 
-        $document = $this->service->generatePackingListForOrder($order, $admin);
+        try {
+            $document = $this->service->generatePackingListForOrder($order, $admin);
+        } catch (\Throwable $e) {
+            Log::error('Packing list generation failed', [
+                'order_id'  => $id,
+                'order_ref' => $order->ref,
+                'error'     => $e->getMessage(),
+                'file'      => $e->getFile() . ':' . $e->getLine(),
+            ]);
+            return response()->json([
+                'message' => 'Unable to generate packing list. Please try again or contact support.',
+            ], 500);
+        }
 
         if ($document->wasRecentlyCreated) {
             try {
