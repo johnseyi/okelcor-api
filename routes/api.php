@@ -478,6 +478,9 @@ Route::prefix('v1')->group(function () {
         Route::middleware('permission:ebay.manage')->group(function () {
             Route::get('ebay/auth-url', [EbayListingController::class, 'authUrl']);
             Route::get('ebay/status', [EbayListingController::class, 'status']);
+            Route::get('ebay/readiness', [EbayListingController::class, 'readiness']);
+            Route::post('ebay/test-connection', [EbayListingController::class, 'testConnection']);
+            Route::get('ebay/policies', [EbayListingController::class, 'policies']);
             Route::post('ebay/disconnect', [EbayListingController::class, 'disconnect']);
             Route::get('ebay/listings', [EbayListingController::class, 'listings']);
             Route::post('ebay/sync-all', [EbayListingController::class, 'syncAll']);

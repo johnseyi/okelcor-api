@@ -76,6 +76,8 @@ return [
         'fulfillment_policy_id' => env('EBAY_FULFILLMENT_POLICY_ID'),
         'payment_policy_id'     => env('EBAY_PAYMENT_POLICY_ID'),
         'return_policy_id'      => env('EBAY_RETURN_POLICY_ID'),
+        'seller_postal_code'    => env('EBAY_SELLER_POSTAL_CODE'),
+        'seller_location'       => env('EBAY_SELLER_LOCATION', 'Germany'),
     ],
 
 ];

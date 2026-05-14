@@ -144,6 +144,164 @@ class EbayListingController extends Controller
     }
 
     // -------------------------------------------------------------------------
+    // GET /admin/ebay/readiness
+    // Pre-listing readiness checklist — config health + live token test.
+    // Returns structured checks with pass/warning/fail + missing_config list.
+    // Does NOT expose credential values.
+    // -------------------------------------------------------------------------
+
+    public function readiness(): JsonResponse
+    {
+        $checks  = [];
+        $missing = [];
+
+        $pass = function (string $key, string $label, string $msg) use (&$checks): void {
+            $checks[] = ['key' => $key, 'label' => $label, 'status' => 'pass', 'message' => $msg];
+        };
+        $warn = function (string $key, string $label, string $msg) use (&$checks): void {
+            $checks[] = ['key' => $key, 'label' => $label, 'status' => 'warning', 'message' => $msg];
+        };
+        $fail = function (string $key, string $label, string $msg) use (&$checks, &$missing): void {
+            $checks[]  = ['key' => $key, 'label' => $label, 'status' => 'fail', 'message' => $msg];
+            $missing[] = $key;
+        };
+
+        // App credentials
+        ! empty(config('services.ebay_sell.client_id'))
+            ? $pass('client_id', 'eBay Client ID', 'EBAY_CLIENT_ID is configured.')
+            : $fail('client_id', 'eBay Client ID', 'EBAY_CLIENT_ID is missing.');
+
+        ! empty(config('services.ebay_sell.client_secret'))
+            ? $pass('client_secret', 'eBay Client Secret', 'EBAY_CLIENT_SECRET is configured.')
+            : $fail('client_secret', 'eBay Client Secret', 'EBAY_CLIENT_SECRET is missing.');
+
+        ! empty(config('services.ebay_sell.ru_name'))
+            ? $pass('ru_name', 'eBay RuName', 'EBAY_RU_NAME is configured.')
+            : $fail('ru_name', 'eBay RuName', 'EBAY_RU_NAME is missing — required for the OAuth redirect flow.');
+
+        // Seller account
+        $connected = EbayToken::active()->exists();
+        $connected
+            ? $pass('connected', 'Seller account connected', 'An active seller OAuth token is present.')
+            : $fail('connected', 'Seller account connected', 'Seller account is not connected. Use GET /admin/ebay/auth-url to start the OAuth flow.');
+
+        // Marketplace + category
+        $marketplaceId = config('services.ebay_sell.marketplace_id');
+        ! empty($marketplaceId)
+            ? $pass('marketplace_id', 'Marketplace ID', "Marketplace is set to {$marketplaceId}.")
+            : $fail('marketplace_id', 'Marketplace ID', 'EBAY_MARKETPLACE_ID is missing.');
+
+        $categoryId = config('services.ebay_sell.category_id');
+        ! empty($categoryId)
+            ? $pass('category_id', 'Default category ID', "Category ID is set to {$categoryId}.")
+            : $fail('category_id', 'Default category ID', 'EBAY_CATEGORY_ID is missing.');
+
+        // Business policies
+        ! empty(config('services.ebay_sell.payment_policy_id'))
+            ? $pass('payment_policy_id', 'Payment policy ID', 'EBAY_PAYMENT_POLICY_ID is configured.')
+            : $fail('payment_policy_id', 'Payment policy ID', 'EBAY_PAYMENT_POLICY_ID is missing. Fetch IDs from GET /admin/ebay/policies.');
+
+        ! empty(config('services.ebay_sell.fulfillment_policy_id'))
+            ? $pass('fulfillment_policy_id', 'Fulfillment policy ID', 'EBAY_FULFILLMENT_POLICY_ID is configured.')
+            : $fail('fulfillment_policy_id', 'Fulfillment policy ID', 'EBAY_FULFILLMENT_POLICY_ID is missing. Fetch IDs from GET /admin/ebay/policies.');
+
+        ! empty(config('services.ebay_sell.return_policy_id'))
+            ? $pass('return_policy_id', 'Return policy ID', 'EBAY_RETURN_POLICY_ID is configured.')
+            : $fail('return_policy_id', 'Return policy ID', 'EBAY_RETURN_POLICY_ID is missing. Fetch IDs from GET /admin/ebay/policies.');
+
+        // Seller location
+        ! empty(config('services.ebay_sell.seller_postal_code'))
+            ? $pass('seller_postal_code', 'Seller postal code', 'EBAY_SELLER_POSTAL_CODE is configured.')
+            : $fail('seller_postal_code', 'Seller postal code', 'EBAY_SELLER_POSTAL_CODE is missing — required for eBay item location.');
+
+        // Environment (warning only — sandbox is valid for testing)
+        $env = config('services.ebay.environment', 'sandbox');
+        $env === 'production'
+            ? $pass('environment', 'eBay environment', 'Environment is set to production.')
+            : $warn('environment', 'eBay environment', "Environment is set to {$env}. Set EBAY_ENVIRONMENT=production before going live.");
+
+        // Live token test (only fires if account is connected)
+        if ($connected) {
+            try {
+                $this->ebay->getAccessToken();
+                $pass('token_refresh', 'Token refresh', 'Access token is valid and refreshed successfully.');
+            } catch (\Throwable) {
+                $fail('token_refresh', 'Token refresh', 'Token refresh failed — the seller account may need to be reconnected via GET /admin/ebay/auth-url.');
+            }
+        } else {
+            $fail('token_refresh', 'Token refresh', 'Cannot test token refresh — no active seller account connected.');
+        }
+
+        return response()->json([
+            'data' => [
+                'connected'       => $connected,
+                'environment'     => $env,
+                'marketplace_id'  => $marketplaceId,
+                'category_id'     => $categoryId,
+                'policies'        => [
+                    'payment_policy_id'     => config('services.ebay_sell.payment_policy_id'),
+                    'fulfillment_policy_id' => config('services.ebay_sell.fulfillment_policy_id'),
+                    'return_policy_id'      => config('services.ebay_sell.return_policy_id'),
+                ],
+                'seller_location' => [
+                    'postal_code' => config('services.ebay_sell.seller_postal_code'),
+                    'location'    => config('services.ebay_sell.seller_location', 'Germany'),
+                ],
+                'checks'         => $checks,
+                'missing_config' => $missing,
+            ],
+            'message' => empty($missing)
+                ? 'All required checks passed.'
+                : count($missing) . ' required check(s) failed — resolve before listing products.',
+        ]);
+    }
+
+    // -------------------------------------------------------------------------
+    // POST /admin/ebay/test-connection
+    // Refreshes the token and calls a lightweight eBay endpoint to verify
+    // that credentials and the stored token are working.
+    // -------------------------------------------------------------------------
+
+    public function testConnection(): JsonResponse
+    {
+        try {
+            $result = $this->ebay->pingConnection();
+
+            return response()->json([
+                'data'    => ['ok' => true],
+                'message' => $result['message'],
+            ]);
+        } catch (\Throwable $e) {
+            return response()->json([
+                'data'    => ['ok' => false],
+                'message' => $this->safeError($e),
+            ], 502);
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // GET /admin/ebay/policies
+    // Fetches payment, fulfillment, and return business policies from eBay
+    // for the configured marketplace. Returns id + name for each policy.
+    // -------------------------------------------------------------------------
+
+    public function policies(): JsonResponse
+    {
+        try {
+            $data = $this->ebay->fetchPolicies();
+
+            return response()->json([
+                'data'    => $data,
+                'message' => 'success',
+            ]);
+        } catch (\Throwable $e) {
+            return response()->json([
+                'message' => $this->safeError($e),
+            ], 502);
+        }
+    }
+
+    // -------------------------------------------------------------------------
     // POST /admin/ebay/disconnect
     // Deactivates the current token. Does not touch existing eBay listings.
     // -------------------------------------------------------------------------
@@ -670,6 +828,10 @@ class EbayListingController extends Controller
 
         if (str_contains($msg, 'syncInventory failed')) {
             return 'eBay stock update failed. The listing may have ended or been removed on eBay.';
+        }
+
+        if (str_contains($msg, 'connection test failed')) {
+            return 'eBay connection test failed. Verify credentials are correct and the seller account is still connected.';
         }
 
         if (str_contains($msg, 'getListingStatus failed')) {

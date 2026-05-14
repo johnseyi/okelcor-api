@@ -47,6 +47,13 @@ class EbaySellingService
             : 'https://auth.ebay.com/oauth2/authorize';
     }
 
+    private function accountBaseUrl(): string
+    {
+        return $this->isSandbox()
+            ? 'https://api.sandbox.ebay.com/sell/account/v1'
+            : 'https://api.ebay.com/sell/account/v1';
+    }
+
     private function cacheKey(): string
     {
         return 'ebay_sell_user_token_' . config('services.ebay.environment');
@@ -401,6 +408,67 @@ class EbaySellingService
         if (! $response->ok()) {
             throw new \RuntimeException("eBay offer update (syncFull) failed for SKU {$sku}: " . $response->body());
         }
+    }
+
+    // -------------------------------------------------------------------------
+    // Test connection — calls a lightweight Inventory API endpoint to verify
+    // that the stored access token is accepted by eBay.
+    // Returns ['message' => string] on success, throws on failure.
+    // -------------------------------------------------------------------------
+
+    public function pingConnection(): array
+    {
+        $token    = $this->getAccessToken();
+        $response = Http::withToken($token)
+            ->withHeaders($this->commonHeaders())
+            ->get("{$this->inventoryBaseUrl()}/inventory_item", ['limit' => 1]);
+
+        if (! $response->ok()) {
+            throw new \RuntimeException(
+                "eBay connection test failed (HTTP {$response->status()}): " . $response->body()
+            );
+        }
+
+        return ['message' => 'eBay connection is working. Token is valid and the API is reachable.'];
+    }
+
+    // -------------------------------------------------------------------------
+    // Fetch business policies from eBay Account API.
+    // Requires sell.account.readonly scope (already in SCOPES).
+    // Returns ['payment' => [...], 'fulfillment' => [...], 'return' => [...]]
+    // Each item: ['id' => string, 'name' => string]
+    // -------------------------------------------------------------------------
+
+    public function fetchPolicies(): array
+    {
+        $token         = $this->getAccessToken();
+        $marketplaceId = config('services.ebay_sell.marketplace_id', 'EBAY_DE');
+
+        $pluck = function (string $endpoint, string $jsonKey, string $idField) use ($token, $marketplaceId): array {
+            $response = Http::withToken($token)
+                ->withHeaders($this->commonHeaders())
+                ->get("{$this->accountBaseUrl()}/{$endpoint}", ['marketplace_id' => $marketplaceId]);
+
+            if (! $response->ok()) {
+                Log::warning("eBay fetchPolicies: {$endpoint} request failed.", [
+                    'status' => $response->status(),
+                    'body'   => $response->body(),
+                ]);
+
+                return [];
+            }
+
+            return array_map(
+                fn($p) => ['id' => $p[$idField] ?? null, 'name' => $p['name'] ?? null],
+                $response->json($jsonKey) ?? []
+            );
+        };
+
+        return [
+            'payment'     => $pluck('payment_policy',     'paymentPolicies',     'paymentPolicyId'),
+            'fulfillment' => $pluck('fulfillment_policy', 'fulfillmentPolicies', 'fulfillmentPolicyId'),
+            'return'      => $pluck('return_policy',      'returnPolicies',      'returnPolicyId'),
+        ];
     }
 
     // -------------------------------------------------------------------------
