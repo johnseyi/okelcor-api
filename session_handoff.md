@@ -1,5 +1,5 @@
 # Session Handoff — Okelcor API
-Last updated: 2026-05-14 (session 17)
+Last updated: 2026-05-14 (session 18)
 
 ## Project
 Laravel 13.2 / PHP 8.3 REST API for Okelcor B2B tyre wholesale.
@@ -34,6 +34,33 @@ composer install --no-dev
 /opt/alt/php83/usr/bin/php artisan config:cache
 /opt/alt/php83/usr/bin/php artisan route:cache
 ```
+
+**Session 18 deploy note (Phase EB-4 — eBay Settings Readiness Checklist):**
+
+**No new database migrations.**
+
+**Files changed (session 18):**
+- `config/services.php` — added `seller_postal_code` (`EBAY_SELLER_POSTAL_CODE`) and `seller_location` (`EBAY_SELLER_LOCATION`) keys to `ebay_sell` config block
+- `.env.example` — added `EBAY_SELLER_POSTAL_CODE` and `EBAY_SELLER_LOCATION`
+- `app/Services/EbaySellingService.php` — added `accountBaseUrl()` private helper (eBay Account API); new `pingConnection(): array` calls `GET /inventory_item?limit=1` to verify token is valid; new `fetchPolicies(): array` calls eBay Account API for payment/fulfillment/return policies (sell.account.readonly scope), returns `[id, name]` per policy
+- `app/Http/Controllers/Admin/EbayListingController.php` — new `readiness()` method (12 checks: credentials, connection, marketplace, category, 3 policy IDs, seller postal code, environment warning, live token test; returns structured checks + missing_config array; never exposes credential values); new `testConnection()` method (delegates to pingConnection, returns ok bool + safe message); new `policies()` method (delegates to fetchPolicies, returns payment/fulfillment/return arrays); extended `safeError()` with connection-test-failed pattern
+- `routes/api.php` — added `GET ebay/readiness`, `POST ebay/test-connection`, `GET ebay/policies`
+
+**New .env keys to set on production:**
+```
+EBAY_SELLER_POSTAL_CODE=your_postal_code
+EBAY_SELLER_LOCATION=Germany
+```
+
+**Deploy steps (no migration needed):**
+```bash
+git reset --hard origin/main
+composer install --no-dev
+/opt/alt/php83/usr/bin/php artisan config:clear && /opt/alt/php83/usr/bin/php artisan config:cache
+/opt/alt/php83/usr/bin/php artisan route:cache
+```
+
+---
 
 **Session 17 deploy note (Phase EB-3 — eBay Price/Title Update Sync & Enhanced Validation):**
 
@@ -251,7 +278,7 @@ php artisan route:cache
 
 ---
 
-## Current Route Count: 171
+## Current Route Count: 174
 
 ### Customer Auth routes (public — no token)
 ```
@@ -549,6 +576,9 @@ DELETE /admin/newsletter/{email}
 GET    /admin/ebay/callback                          ← PUBLIC; verifies state, exchanges code, stores tokens in DB; redirects to frontend
 GET    /admin/ebay/auth-url                          ← returns { url, state }; state stored in cache (15 min CSRF guard)
 GET    /admin/ebay/status                            ← connection status + missing config keys
+GET    /admin/ebay/readiness                         ← 12-check pre-listing checklist (pass/warning/fail per check) + missing_config[]; never exposes credential values
+POST   /admin/ebay/test-connection                   ← refreshes token + pings Inventory API; returns { ok: bool, message }
+GET    /admin/ebay/policies                          ← fetches payment/fulfillment/return policy [id, name] from eBay Account API for configured marketplace
 POST   /admin/ebay/disconnect                        ← deactivates active token; clears cache; logs ebay_disconnected
 GET    /admin/ebay/listings                          ← products where ebay_listed=true (includes ebay_status, ebay_last_synced_at, ebay_sync_error)
 GET    /admin/ebay/logs                              ← paginated ebay_listing_logs; filters: product_id, sku, action, status, date_from, date_to
@@ -2090,6 +2120,7 @@ Conversion: `url(Storage::url($relativePath))` in controller formatters.
 | Phase EB-1 — eBay OAuth & Token Stability | **DONE** — `ebay_tokens` table; encrypted token storage; callback handler; refresh_token rotation; status + disconnect endpoints; `.env` fallback preserved |
 | Phase EB-2 — Listing Status Tracking & Logs | **DONE** — 4 new product columns (`ebay_offer_id`, `ebay_status`, `ebay_last_synced_at`, `ebay_sync_error`); `ebay_listing_logs` table; all publish/remove/sync/refresh operations log to DB; `refresh-status` endpoint; `logs` endpoint with filters; safe error messages to frontend |
 | Phase EB-3 — Price/Title Update Sync & Enhanced Validation | **DONE** — `updateListing()` + `PATCH /products/{id}/ebay/update`; `syncFull()` replaces `syncInventory()` in sync-all (full field sync); `guardProduct()` expanded with 7 new checks (connection, title, stock, image URL, marketplace/category config); `validation_failed` log action; 8 new `safeError()` patterns |
+| Phase EB-4 — Settings Readiness Checklist | **DONE** — `GET /ebay/readiness` (12-check list: credentials, connection, marketplace/category/policies, seller location, env flag, live token test); `POST /ebay/test-connection` (pings Inventory API); `GET /ebay/policies` (fetches business policy IDs+names from eBay Account API); `EBAY_SELLER_POSTAL_CODE` + `EBAY_SELLER_LOCATION` config keys added |
 | eBay production credentials | Rotate `EBAY_CLIENT_SECRET` (exposed in prior session). Set `EBAY_RU_NAME`. Register callback URL `https://api.okelcor.com/api/v1/admin/ebay/callback` in eBay Developer Portal. Set `EBAY_ENVIRONMENT=production`. |
 | Adyen approval | Legacy/inactive until business account/API credentials are approved |
 | `GET /admin/products?trashed=only` | Restore works but no dedicated trashed product list endpoint |
