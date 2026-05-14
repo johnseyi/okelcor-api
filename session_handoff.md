@@ -1,5 +1,5 @@
 # Session Handoff — Okelcor API
-Last updated: 2026-05-14 (session 16)
+Last updated: 2026-05-14 (session 17)
 
 ## Project
 Laravel 13.2 / PHP 8.3 REST API for Okelcor B2B tyre wholesale.
@@ -34,6 +34,25 @@ composer install --no-dev
 /opt/alt/php83/usr/bin/php artisan config:cache
 /opt/alt/php83/usr/bin/php artisan route:cache
 ```
+
+**Session 17 deploy note (Phase EB-3 — eBay Price/Title Update Sync & Enhanced Validation):**
+
+**No new database migrations.**
+
+**Files changed (session 17):**
+- `app/Services/EbaySellingService.php` — extracted `buildOfferBody(Product): array` private helper (shared by upsertOffer/updateListing/syncFull); new `updateListing(Product): array` — strict update (requires existing offer, calls guardProduct, upserts inventory item + PUT offer, does NOT re-publish, returns offer_id + listing_id); new `syncFull(Product): void` — permissive full sync (stock + price + title + description) used by sync-all batch; expanded `guardProduct()` with 7 new checks: eBay connection (`EbayToken::active()->exists()`), non-empty title, stock > 0, absolute image URL validation (http/https), marketplace ID configured, category ID configured
+- `app/Http/Controllers/Admin/EbayListingController.php` — new `updateProduct(int $id)` method for PATCH endpoint; `listProduct()` now catches `\InvalidArgumentException` separately (logged as `validation_failed`, returns 422); `syncAll()` changed from `syncInventory()` to `syncFull()` (syncs price + title + description too); log payloads include `price` in sync actions; `safeError()` extended with 8 new patterns (no-offer, no-title, no-stock, invalid-image, marketplace/category not configured, syncFull failed)
+- `routes/api.php` — added `PATCH products/{id}/ebay/update`
+
+**Deploy steps (no migration needed):**
+```bash
+git reset --hard origin/main
+composer install --no-dev
+/opt/alt/php83/usr/bin/php artisan config:clear && /opt/alt/php83/usr/bin/php artisan config:cache
+/opt/alt/php83/usr/bin/php artisan route:cache
+```
+
+---
 
 **Session 16 deploy note (Phase EB-2 — eBay Listing Status Tracking & Sync Logs):**
 
@@ -232,7 +251,7 @@ php artisan route:cache
 
 ---
 
-## Current Route Count: 170
+## Current Route Count: 171
 
 ### Customer Auth routes (public — no token)
 ```
@@ -533,8 +552,9 @@ GET    /admin/ebay/status                            ← connection status + mis
 POST   /admin/ebay/disconnect                        ← deactivates active token; clears cache; logs ebay_disconnected
 GET    /admin/ebay/listings                          ← products where ebay_listed=true (includes ebay_status, ebay_last_synced_at, ebay_sync_error)
 GET    /admin/ebay/logs                              ← paginated ebay_listing_logs; filters: product_id, sku, action, status, date_from, date_to
-POST   /admin/ebay/sync-all                          ← bulk stock sync + best-effort status refresh; logs each product individually
-POST   /admin/products/{id}/ebay/list                ← publish product to eBay; sets ebay_status=active; logs publish/publish_failed (canonical)
+POST   /admin/ebay/sync-all                          ← bulk full sync (stock + price + title + description) + best-effort status refresh; logs each product individually
+POST   /admin/products/{id}/ebay/list                ← publish product to eBay; sets ebay_status=active; logs publish/validation_failed/publish_failed (canonical)
+PATCH  /admin/products/{id}/ebay/update              ← update existing eBay listing (price, title, stock); does NOT re-publish; requires ebay_listed=true; logs update/validation_failed/update_failed
 DELETE /admin/products/{id}/ebay/remove              ← remove product from eBay; sets ebay_status=withdrawn; logs remove/remove_failed (canonical)
 POST   /admin/products/{id}/ebay/refresh-status      ← fetch current eBay offer status; update ebay_status + ebay_last_synced_at; log refresh_status/refresh_status_failed
 
@@ -2069,6 +2089,7 @@ Conversion: `url(Storage::url($relativePath))` in controller formatters.
 |------|-------|
 | Phase EB-1 — eBay OAuth & Token Stability | **DONE** — `ebay_tokens` table; encrypted token storage; callback handler; refresh_token rotation; status + disconnect endpoints; `.env` fallback preserved |
 | Phase EB-2 — Listing Status Tracking & Logs | **DONE** — 4 new product columns (`ebay_offer_id`, `ebay_status`, `ebay_last_synced_at`, `ebay_sync_error`); `ebay_listing_logs` table; all publish/remove/sync/refresh operations log to DB; `refresh-status` endpoint; `logs` endpoint with filters; safe error messages to frontend |
+| Phase EB-3 — Price/Title Update Sync & Enhanced Validation | **DONE** — `updateListing()` + `PATCH /products/{id}/ebay/update`; `syncFull()` replaces `syncInventory()` in sync-all (full field sync); `guardProduct()` expanded with 7 new checks (connection, title, stock, image URL, marketplace/category config); `validation_failed` log action; 8 new `safeError()` patterns |
 | eBay production credentials | Rotate `EBAY_CLIENT_SECRET` (exposed in prior session). Set `EBAY_RU_NAME`. Register callback URL `https://api.okelcor.com/api/v1/admin/ebay/callback` in eBay Developer Portal. Set `EBAY_ENVIRONMENT=production`. |
 | Adyen approval | Legacy/inactive until business account/API credentials are approved |
 | `GET /admin/products?trashed=only` | Restore works but no dedicated trashed product list endpoint |
