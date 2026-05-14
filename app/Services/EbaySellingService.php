@@ -232,10 +232,10 @@ class EbaySellingService
 
     // -------------------------------------------------------------------------
     // Create or update a listing for a product
-    // Returns the eBay listingId (item number shown in the URL)
+    // Returns ['listing_id' => string, 'offer_id' => string]
     // -------------------------------------------------------------------------
 
-    public function createOrUpdateListing(Product $product): string
+    public function createOrUpdateListing(Product $product): array
     {
         $this->guardProduct($product);
 
@@ -246,9 +246,49 @@ class EbaySellingService
         $offerId   = $this->upsertOffer($product, $token);
         $listingId = $this->publishOffer($offerId, $token);
 
-        Log::info("eBay listing published: SKU {$sku} → listingId {$listingId}");
+        Log::info("eBay listing published: SKU {$sku} → listingId {$listingId}, offerId {$offerId}");
 
-        return $listingId;
+        return ['listing_id' => $listingId, 'offer_id' => $offerId];
+    }
+
+    // -------------------------------------------------------------------------
+    // Fetch current listing status from eBay for a given SKU.
+    // Returns ['status' => string, 'offer_id' => string|null]
+    // Status values: active | draft | ended | unknown
+    // -------------------------------------------------------------------------
+
+    public function getListingStatus(string $sku): array
+    {
+        $token = $this->getAccessToken();
+
+        $response = Http::withToken($token)
+            ->withHeaders($this->commonHeaders())
+            ->get("{$this->inventoryBaseUrl()}/offer", ['sku' => $sku]);
+
+        if (! $response->ok()) {
+            throw new \RuntimeException(
+                "eBay getListingStatus failed for SKU {$sku}: " . $response->body()
+            );
+        }
+
+        $offers = $response->json('offers') ?? [];
+
+        if (empty($offers)) {
+            // Product marked as listed but no offer found on eBay — listing may have ended
+            return ['status' => 'ended', 'offer_id' => null];
+        }
+
+        $offer       = $offers[0];
+        $offerId     = $offer['offerId'] ?? null;
+        $offerStatus = strtoupper($offer['status'] ?? '');
+
+        $status = match ($offerStatus) {
+            'PUBLISHED'   => 'active',
+            'UNPUBLISHED' => 'draft',
+            default       => 'unknown',
+        };
+
+        return ['status' => $status, 'offer_id' => $offerId];
     }
 
     // -------------------------------------------------------------------------

@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Models\EbayListingLog;
 use App\Models\EbayToken;
 use App\Models\Product;
 use App\Services\EbaySellingService;
@@ -153,7 +154,6 @@ class EbayListingController extends Controller
 
         EbayToken::where('is_active', true)->update(['is_active' => false]);
 
-        // Clear any cached access token so the next call attempts a fresh refresh
         Cache::forget('ebay_sell_user_token_' . config('services.ebay.environment'));
 
         Log::info('eBay seller account disconnected.', [
@@ -174,7 +174,11 @@ class EbayListingController extends Controller
     {
         $products = Product::where('ebay_listed', true)
             ->orderBy('updated_at', 'desc')
-            ->get(['id', 'sku', 'name', 'brand', 'price', 'stock', 'ebay_listed', 'ebay_item_id']);
+            ->get([
+                'id', 'sku', 'name', 'brand', 'price', 'stock',
+                'ebay_listed', 'ebay_item_id', 'ebay_offer_id',
+                'ebay_status', 'ebay_last_synced_at', 'ebay_sync_error',
+            ]);
 
         return response()->json([
             'data' => $products,
@@ -188,22 +192,59 @@ class EbayListingController extends Controller
 
     public function listProduct(int $id): JsonResponse
     {
-        $product = Product::findOrFail($id);
+        $product  = Product::findOrFail($id);
+        $adminId  = auth()->id();
 
-        $listingId = $this->ebay->createOrUpdateListing($product);
+        try {
+            $result = $this->ebay->createOrUpdateListing($product);
 
-        $product->update([
-            'ebay_listed'  => true,
-            'ebay_item_id' => $listingId,
-        ]);
+            $product->update([
+                'ebay_listed'         => true,
+                'ebay_item_id'        => $result['listing_id'],
+                'ebay_offer_id'       => $result['offer_id'],
+                'ebay_status'         => 'active',
+                'ebay_last_synced_at' => now(),
+                'ebay_sync_error'     => null,
+            ]);
 
-        return response()->json([
-            'data'    => [
-                'listing_id' => $listingId,
-                'sku'        => $product->sku,
-            ],
-            'message' => "Product SKU {$product->sku} listed on eBay (listing #{$listingId}).",
-        ]);
+            $this->writeLog([
+                'product_id'    => $product->id,
+                'admin_user_id' => $adminId,
+                'sku'           => $product->sku,
+                'action'        => 'publish',
+                'ebay_item_id'  => $result['listing_id'],
+                'ebay_offer_id' => $result['offer_id'],
+                'status'        => 'active',
+            ]);
+
+            return response()->json([
+                'data' => [
+                    'listing_id' => $result['listing_id'],
+                    'offer_id'   => $result['offer_id'],
+                    'sku'        => $product->sku,
+                    'ebay_status'=> 'active',
+                ],
+                'message' => "Product SKU {$product->sku} listed on eBay (listing #{$result['listing_id']}).",
+            ]);
+        } catch (\Throwable $e) {
+            $safe = $this->safeError($e);
+
+            $product->update([
+                'ebay_status'     => 'error',
+                'ebay_sync_error' => $safe,
+            ]);
+
+            $this->writeLog([
+                'product_id'    => $product->id,
+                'admin_user_id' => $adminId,
+                'sku'           => $product->sku,
+                'action'        => 'publish_failed',
+                'status'        => 'error',
+                'error_message' => $safe,
+            ]);
+
+            return response()->json(['message' => $safe], 502);
+        }
     }
 
     // -------------------------------------------------------------------------
@@ -213,36 +254,115 @@ class EbayListingController extends Controller
     public function removeListing(int $id): JsonResponse
     {
         $product = Product::findOrFail($id);
+        $adminId = auth()->id();
 
-        $this->ebay->deleteListing($product->sku);
+        try {
+            $this->ebay->deleteListing($product->sku);
 
-        $product->update([
-            'ebay_listed'  => false,
-            'ebay_item_id' => null,
-        ]);
+            $product->update([
+                'ebay_listed'         => false,
+                'ebay_item_id'        => null,
+                'ebay_offer_id'       => null,
+                'ebay_status'         => 'withdrawn',
+                'ebay_last_synced_at' => now(),
+                'ebay_sync_error'     => null,
+            ]);
 
-        return response()->json([
-            'message' => "eBay listing removed for SKU {$product->sku}.",
-        ]);
+            $this->writeLog([
+                'product_id'    => $product->id,
+                'admin_user_id' => $adminId,
+                'sku'           => $product->sku,
+                'action'        => 'remove',
+                'status'        => 'withdrawn',
+            ]);
+
+            return response()->json([
+                'message' => "eBay listing removed for SKU {$product->sku}.",
+            ]);
+        } catch (\Throwable $e) {
+            $safe = $this->safeError($e);
+
+            $this->writeLog([
+                'product_id'    => $product->id,
+                'admin_user_id' => $adminId,
+                'sku'           => $product->sku,
+                'action'        => 'remove_failed',
+                'status'        => 'error',
+                'error_message' => $safe,
+            ]);
+
+            return response()->json(['message' => $safe], 502);
+        }
     }
 
     // -------------------------------------------------------------------------
     // POST /admin/ebay/sync-all
+    // Syncs stock for all listed products. Logs each result individually.
+    // A single product failure does not stop the rest of the batch.
     // -------------------------------------------------------------------------
 
     public function syncAll(): JsonResponse
     {
         $products = Product::where('ebay_listed', true)->get();
-
-        $synced = 0;
-        $errors = [];
+        $adminId  = auth()->id();
+        $synced   = 0;
+        $errors   = [];
 
         foreach ($products as $product) {
             try {
                 $this->ebay->syncInventory($product);
+
+                // Best-effort status refresh — failure here does not break the sync
+                $ebayStatus = $product->ebay_status ?? 'active';
+                try {
+                    $statusResult = $this->ebay->getListingStatus($product->sku);
+                    $ebayStatus   = $statusResult['status'];
+
+                    if (! empty($statusResult['offer_id']) && $statusResult['offer_id'] !== $product->ebay_offer_id) {
+                        $product->ebay_offer_id = $statusResult['offer_id'];
+                    }
+                } catch (\Throwable) {
+                    // Status refresh failed — keep existing status, do not fail the sync
+                }
+
+                $product->update([
+                    'ebay_status'         => $ebayStatus,
+                    'ebay_last_synced_at' => now(),
+                    'ebay_sync_error'     => null,
+                    'ebay_offer_id'       => $product->ebay_offer_id,
+                ]);
+
+                $this->writeLog([
+                    'product_id'    => $product->id,
+                    'admin_user_id' => $adminId,
+                    'sku'           => $product->sku,
+                    'action'        => 'sync',
+                    'ebay_item_id'  => $product->ebay_item_id,
+                    'ebay_offer_id' => $product->ebay_offer_id,
+                    'status'        => $ebayStatus,
+                    'payload_summary' => ['stock' => $product->stock],
+                ]);
+
                 $synced++;
             } catch (\Throwable $e) {
-                $errors[] = "SKU {$product->sku}: {$e->getMessage()}";
+                $safe = $this->safeError($e);
+
+                $product->update([
+                    'ebay_status'     => 'error',
+                    'ebay_sync_error' => $safe,
+                ]);
+
+                $this->writeLog([
+                    'product_id'    => $product->id,
+                    'admin_user_id' => $adminId,
+                    'sku'           => $product->sku,
+                    'action'        => 'sync_failed',
+                    'ebay_item_id'  => $product->ebay_item_id,
+                    'status'        => 'error',
+                    'error_message' => $safe,
+                ]);
+
+                $errors[] = "SKU {$product->sku}: {$safe}";
             }
         }
 
@@ -250,5 +370,180 @@ class EbayListingController extends Controller
             'data'    => ['synced' => $synced, 'errors' => $errors],
             'message' => "Synced {$synced} of {$products->count()} listings.",
         ]);
+    }
+
+    // -------------------------------------------------------------------------
+    // POST /admin/products/{id}/ebay/refresh-status
+    // Fetches the current listing status from eBay and updates the product.
+    // -------------------------------------------------------------------------
+
+    public function refreshStatus(int $id): JsonResponse
+    {
+        $product = Product::findOrFail($id);
+        $adminId = auth()->id();
+
+        if (! $product->ebay_listed) {
+            return response()->json(['message' => 'Product is not listed on eBay.'], 422);
+        }
+
+        try {
+            $result = $this->ebay->getListingStatus($product->sku);
+
+            $product->update([
+                'ebay_status'         => $result['status'],
+                'ebay_offer_id'       => $result['offer_id'] ?? $product->ebay_offer_id,
+                'ebay_last_synced_at' => now(),
+                'ebay_sync_error'     => null,
+            ]);
+
+            $this->writeLog([
+                'product_id'    => $product->id,
+                'admin_user_id' => $adminId,
+                'sku'           => $product->sku,
+                'action'        => 'refresh_status',
+                'ebay_item_id'  => $product->ebay_item_id,
+                'ebay_offer_id' => $result['offer_id'] ?? $product->ebay_offer_id,
+                'status'        => $result['status'],
+            ]);
+
+            return response()->json([
+                'data' => [
+                    'sku'                 => $product->sku,
+                    'ebay_status'         => $result['status'],
+                    'ebay_offer_id'       => $result['offer_id'] ?? $product->ebay_offer_id,
+                    'ebay_last_synced_at' => now()->toIso8601String(),
+                    'ebay_sync_error'     => null,
+                ],
+                'message' => 'eBay listing status refreshed.',
+            ]);
+        } catch (\Throwable $e) {
+            $safe = $this->safeError($e);
+
+            $product->update([
+                'ebay_status'     => 'unknown',
+                'ebay_sync_error' => $safe,
+            ]);
+
+            $this->writeLog([
+                'product_id'    => $product->id,
+                'admin_user_id' => $adminId,
+                'sku'           => $product->sku,
+                'action'        => 'refresh_status_failed',
+                'ebay_item_id'  => $product->ebay_item_id,
+                'status'        => 'unknown',
+                'error_message' => $safe,
+            ]);
+
+            return response()->json(['message' => $safe], 502);
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // GET /admin/ebay/logs
+    // Paginated log of all eBay listing actions.
+    // Filters: product_id, sku, action, status, date_from, date_to
+    // -------------------------------------------------------------------------
+
+    public function logs(Request $request): JsonResponse
+    {
+        $query = EbayListingLog::with(['product:id,sku,name,brand', 'adminUser:id,email,name'])
+            ->when($request->filled('product_id'), fn ($q) => $q->where('product_id', $request->product_id))
+            ->when($request->filled('sku'),        fn ($q) => $q->where('sku', $request->sku))
+            ->when($request->filled('action'),     fn ($q) => $q->where('action', $request->action))
+            ->when($request->filled('status'),     fn ($q) => $q->where('status', $request->status))
+            ->when($request->filled('date_from'),  fn ($q) => $q->whereDate('created_at', '>=', $request->date_from))
+            ->when($request->filled('date_to'),    fn ($q) => $q->whereDate('created_at', '<=', $request->date_to))
+            ->latest('created_at');
+
+        $perPage = min((int) ($request->per_page ?? 50), 200);
+        $result  = $query->paginate($perPage);
+
+        return response()->json([
+            'data' => $result->items(),
+            'meta' => [
+                'current_page' => $result->currentPage(),
+                'per_page'     => $result->perPage(),
+                'total'        => $result->total(),
+                'last_page'    => $result->lastPage(),
+            ],
+            'message' => 'success',
+        ]);
+    }
+
+    // -------------------------------------------------------------------------
+    // Private helpers
+    // -------------------------------------------------------------------------
+
+    /**
+     * Write a log entry to ebay_listing_logs.
+     * Wrapped in try/catch so log failure never blocks the primary action.
+     */
+    private function writeLog(array $data): void
+    {
+        try {
+            EbayListingLog::create($data);
+        } catch (\Throwable $e) {
+            Log::warning('eBay: failed to write listing log.', ['error' => $e->getMessage()]);
+        }
+    }
+
+    /**
+     * Map raw exception messages to safe, user-readable error strings.
+     * Never leaks internal stack traces or sensitive config values.
+     */
+    private function safeError(\Throwable $e): string
+    {
+        $msg = $e->getMessage();
+
+        if (str_contains($msg, 'not connected') || str_contains($msg, 'EBAY_REFRESH_TOKEN') || str_contains($msg, 'auth-url')) {
+            return 'eBay seller account is not connected. Use GET /admin/ebay/auth-url to connect first.';
+        }
+
+        if (str_contains($msg, 'token refresh failed')) {
+            return 'eBay authentication failed — the seller account may need to be reconnected via /admin/ebay/auth-url.';
+        }
+
+        if (str_contains($msg, 'policy IDs')) {
+            return 'eBay listing policy IDs are not configured. Set EBAY_FULFILLMENT_POLICY_ID, EBAY_PAYMENT_POLICY_ID, and EBAY_RETURN_POLICY_ID in your environment.';
+        }
+
+        if (str_contains($msg, 'no SKU')) {
+            return 'Product has no SKU — a unique SKU is required for eBay listing.';
+        }
+
+        if (str_contains($msg, 'no price')) {
+            return 'Product has no price — a price greater than 0 is required for eBay listing.';
+        }
+
+        if (str_contains($msg, 'no images')) {
+            return 'Product has no images — eBay requires at least one image before listing.';
+        }
+
+        if (str_contains($msg, 'inventory item upsert failed')) {
+            return 'eBay rejected the product data (inventory item). Check the product SKU, title length, and image URLs.';
+        }
+
+        if (str_contains($msg, 'offer create failed') || str_contains($msg, 'offer update failed')) {
+            return 'eBay rejected the listing offer. Check that category ID and listing policy IDs are valid for this marketplace.';
+        }
+
+        if (str_contains($msg, 'offer publish failed')) {
+            return 'eBay could not publish the listing. The offer may be missing required fields or the category may be restricted.';
+        }
+
+        if (str_contains($msg, 'syncInventory failed')) {
+            return 'eBay stock update failed. The listing may have ended or been removed on eBay.';
+        }
+
+        if (str_contains($msg, 'getListingStatus failed')) {
+            return 'eBay status check failed. The listing may no longer exist on eBay.';
+        }
+
+        // Surface sanitised eBay API errors (already safe — originate from our service)
+        if (str_contains($msg, 'eBay')) {
+            return $msg;
+        }
+
+        return 'eBay operation failed. Check the eBay logs for details.';
     }
 }

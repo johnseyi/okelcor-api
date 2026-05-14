@@ -32,18 +32,23 @@ class Product extends Model
         'cost_price',
         'ebay_listed',
         'ebay_item_id',
+        'ebay_offer_id',
+        'ebay_status',
+        'ebay_last_synced_at',
+        'ebay_sync_error',
         'in_stock',
     ];
 
     protected $casts = [
-        'price'        => 'decimal:2',
-        'price_b2b'    => 'decimal:2',
-        'price_b2c'    => 'decimal:2',
-        'cost_price'   => 'decimal:2',
-        'is_active'    => 'boolean',
-        'stock'        => 'integer',
-        'ebay_listed'  => 'boolean',
-        'in_stock'     => 'boolean',
+        'price'               => 'decimal:2',
+        'price_b2b'           => 'decimal:2',
+        'price_b2c'           => 'decimal:2',
+        'cost_price'          => 'decimal:2',
+        'is_active'           => 'boolean',
+        'stock'               => 'integer',
+        'ebay_listed'         => 'boolean',
+        'ebay_last_synced_at' => 'datetime',
+        'in_stock'            => 'boolean',
     ];
 
     public function images()

@@ -1,5 +1,5 @@
 # Session Handoff — Okelcor API
-Last updated: 2026-05-14 (session 15)
+Last updated: 2026-05-14 (session 16)
 
 ## Project
 Laravel 13.2 / PHP 8.3 REST API for Okelcor B2B tyre wholesale.
@@ -34,6 +34,32 @@ composer install --no-dev
 /opt/alt/php83/usr/bin/php artisan config:cache
 /opt/alt/php83/usr/bin/php artisan route:cache
 ```
+
+**Session 16 deploy note (Phase EB-2 — eBay Listing Status Tracking & Sync Logs):**
+
+**New database migrations:**
+- `2026_05_14_000002_add_ebay_status_fields_to_products_table` — adds `ebay_offer_id`, `ebay_status`, `ebay_last_synced_at`, `ebay_sync_error` to `products`
+- `2026_05_14_000003_create_ebay_listing_logs_table` — append-only audit log for all eBay listing actions
+
+**Files changed (session 16):**
+- `database/migrations/2026_05_14_000002_add_ebay_status_fields_to_products_table.php` — **NEW**
+- `database/migrations/2026_05_14_000003_create_ebay_listing_logs_table.php` — **NEW**
+- `app/Models/EbayListingLog.php` — **NEW** — append-only model (`UPDATED_AT = null`); BelongsTo Product + AdminUser
+- `app/Models/Product.php` — added `ebay_offer_id`, `ebay_status`, `ebay_last_synced_at`, `ebay_sync_error` to `$fillable`; added `ebay_last_synced_at` datetime cast
+- `app/Services/EbaySellingService.php` — `createOrUpdateListing()` return type changed `string → array` (`['listing_id', 'offer_id']`); new `getListingStatus(string $sku): array` fetches offer status from eBay and maps to internal values
+- `app/Http/Controllers/Admin/EbayListingController.php` — `listProduct()` + `removeListing()` now update all 4 new product fields and write log entries; `syncAll()` updates `ebay_last_synced_at`, does best-effort status refresh, logs per-product success/failure; new `refreshStatus(int $id)` method; new `logs()` method with filters; `listings()` includes new status fields; `safeError()` helper maps exception messages to safe user-readable strings; `writeLog()` helper (try-catch — never blocks primary action)
+- `routes/api.php` — added `GET ebay/logs`, `POST products/{id}/ebay/refresh-status`
+
+**Deploy steps:**
+```bash
+git reset --hard origin/main
+composer install --no-dev
+/opt/alt/php83/usr/bin/php artisan migrate --force
+/opt/alt/php83/usr/bin/php artisan config:clear && /opt/alt/php83/usr/bin/php artisan config:cache
+/opt/alt/php83/usr/bin/php artisan route:cache
+```
+
+---
 
 **Session 15 deploy note (Phase EB-1 — eBay OAuth & Token Stability):**
 
@@ -206,7 +232,7 @@ php artisan route:cache
 
 ---
 
-## Current Route Count: 168
+## Current Route Count: 170
 
 ### Customer Auth routes (public — no token)
 ```
@@ -505,10 +531,12 @@ GET    /admin/ebay/callback                          ← PUBLIC; verifies state,
 GET    /admin/ebay/auth-url                          ← returns { url, state }; state stored in cache (15 min CSRF guard)
 GET    /admin/ebay/status                            ← connection status + missing config keys
 POST   /admin/ebay/disconnect                        ← deactivates active token; clears cache; logs ebay_disconnected
-GET    /admin/ebay/listings                          ← products where ebay_listed=true
-POST   /admin/ebay/sync-all                          ← bulk stock sync for all listed products
-POST   /admin/products/{id}/ebay/list                ← publish product to eBay (canonical)
-DELETE /admin/products/{id}/ebay/remove              ← remove product from eBay (canonical)
+GET    /admin/ebay/listings                          ← products where ebay_listed=true (includes ebay_status, ebay_last_synced_at, ebay_sync_error)
+GET    /admin/ebay/logs                              ← paginated ebay_listing_logs; filters: product_id, sku, action, status, date_from, date_to
+POST   /admin/ebay/sync-all                          ← bulk stock sync + best-effort status refresh; logs each product individually
+POST   /admin/products/{id}/ebay/list                ← publish product to eBay; sets ebay_status=active; logs publish/publish_failed (canonical)
+DELETE /admin/products/{id}/ebay/remove              ← remove product from eBay; sets ebay_status=withdrawn; logs remove/remove_failed (canonical)
+POST   /admin/products/{id}/ebay/refresh-status      ← fetch current eBay offer status; update ebay_status + ebay_last_synced_at; log refresh_status/refresh_status_failed
 
 # Supplier intelligence — super_admin, admin, order_manager
 GET    /admin/supplier/search?q={query}&limit={1-50}
@@ -1131,6 +1159,38 @@ Migration: `2026_05_14_000001_create_ebay_tokens_table`
 | `created_at` / `updated_at` | timestamp | |
 
 **Token access order:** Cache (hot path, TTL = `expires_in - 60s`) → DB active record → `EBAY_REFRESH_TOKEN` env fallback (legacy only).
+
+### `ebay_listing_logs`
+Migration: `2026_05_14_000003_create_ebay_listing_logs_table`
+
+Append-only audit log — no `updated_at`. Records survive product/user deletion (FK nullOnDelete).
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | bigint | PK |
+| `product_id` | bigint FK | nullable → nullOnDelete → products |
+| `admin_user_id` | bigint FK | nullable → nullOnDelete → admin_users |
+| `sku` | varchar | nullable, indexed |
+| `action` | varchar | `publish` \| `publish_failed` \| `remove` \| `remove_failed` \| `sync` \| `sync_failed` \| `refresh_status` \| `refresh_status_failed` |
+| `ebay_item_id` | varchar | nullable |
+| `ebay_offer_id` | varchar | nullable |
+| `status` | varchar | nullable — `active` \| `draft` \| `error` \| `ended` \| `withdrawn` \| `unknown` |
+| `error_message` | text | nullable — safe error string |
+| `response_code` | smallint unsigned | nullable — HTTP status from eBay |
+| `payload_summary` | json | nullable — e.g. `{ "stock": 5 }` |
+| `created_at` | timestamp | auto-set, indexed |
+
+**New product columns (Phase EB-2):**
+`ebay_offer_id` (varchar, nullable), `ebay_status` (varchar, nullable), `ebay_last_synced_at` (timestamp, nullable), `ebay_sync_error` (text, nullable)
+
+**eBay status values:** `active` | `draft` | `error` | `ended` | `withdrawn` | `unknown`
+
+**eBay status → product field mapping:**
+- Publish success → `ebay_status = active`
+- Remove success → `ebay_status = withdrawn`
+- Sync / refresh failure → `ebay_status = error`
+- No offer found on eBay → `ebay_status = ended`
+- Status check failed → `ebay_status = unknown`
 
 **Token rotation:** every `getAccessToken()` call that hits eBay's token endpoint persists the new access_token and any rotated refresh_token back to the DB record.
 
@@ -2008,6 +2068,7 @@ Conversion: `url(Storage::url($relativePath))` in controller formatters.
 | Item | Notes |
 |------|-------|
 | Phase EB-1 — eBay OAuth & Token Stability | **DONE** — `ebay_tokens` table; encrypted token storage; callback handler; refresh_token rotation; status + disconnect endpoints; `.env` fallback preserved |
+| Phase EB-2 — Listing Status Tracking & Logs | **DONE** — 4 new product columns (`ebay_offer_id`, `ebay_status`, `ebay_last_synced_at`, `ebay_sync_error`); `ebay_listing_logs` table; all publish/remove/sync/refresh operations log to DB; `refresh-status` endpoint; `logs` endpoint with filters; safe error messages to frontend |
 | eBay production credentials | Rotate `EBAY_CLIENT_SECRET` (exposed in prior session). Set `EBAY_RU_NAME`. Register callback URL `https://api.okelcor.com/api/v1/admin/ebay/callback` in eBay Developer Portal. Set `EBAY_ENVIRONMENT=production`. |
 | Adyen approval | Legacy/inactive until business account/API credentials are approved |
 | `GET /admin/products?trashed=only` | Restore works but no dedicated trashed product list endpoint |
