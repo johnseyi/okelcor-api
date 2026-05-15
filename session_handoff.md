@@ -1,5 +1,5 @@
 # Session Handoff — Okelcor API
-Last updated: 2026-05-14 (session 18)
+Last updated: 2026-05-15 (session 19)
 
 ## Project
 Laravel 13.2 / PHP 8.3 REST API for Okelcor B2B tyre wholesale.
@@ -34,6 +34,28 @@ composer install --no-dev
 /opt/alt/php83/usr/bin/php artisan config:cache
 /opt/alt/php83/usr/bin/php artisan route:cache
 ```
+
+**Session 19 — Policies endpoint verification (no code changes):**
+
+Confirmed `GET /api/v1/admin/ebay/policies` is working correctly end-to-end:
+- Route registered ✓
+- Token refresh + eBay Account API calls succeed (OAuth connected, `sell.account.readonly` scope active)
+- `POST /api/v1/admin/ebay/test-connection` confirmed working — returns `"eBay connection is working. Token is valid and the API is reachable."`
+- Response shape matches frontend spec exactly:
+  ```json
+  {
+    "data": {
+      "payment":     [{ "id": "...", "name": "..." }],
+      "fulfillment": [{ "id": "...", "name": "..." }],
+      "return":      [{ "id": "...", "name": "..." }]
+    },
+    "message": "success"
+  }
+  ```
+- Partial failure behaviour confirmed: if one policy group fails, returns `[]` for that group; others succeed
+- No backend changes needed — frontend can consume `data.payment`, `data.fulfillment`, `data.return` directly
+
+---
 
 **Session 18 deploy note (Phase EB-4 — eBay Settings Readiness Checklist):**
 
