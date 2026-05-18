@@ -416,7 +416,8 @@ class EbaySellingService
             ->withHeaders($this->commonHeaders())
             ->put("{$this->inventoryBaseUrl()}/offer/{$offerId}", $this->buildOfferBody($product));
 
-        if (! $response->ok()) {
+        // PUT /offer returns 204 No Content on success (not 200)
+        if (! $response->successful()) {
             $this->logEbayApiError(
                 'update_listing_put_offer',
                 "{$this->inventoryBaseUrl()}/offer/{$offerId}",
@@ -464,7 +465,8 @@ class EbaySellingService
             ->withHeaders($this->commonHeaders())
             ->put("{$this->inventoryBaseUrl()}/offer/{$offerId}", $this->buildOfferBody($product));
 
-        if (! $response->ok()) {
+        // PUT /offer returns 204 No Content on success (not 200)
+        if (! $response->successful()) {
             $this->logEbayApiError(
                 'sync_full_put_offer',
                 "{$this->inventoryBaseUrl()}/offer/{$offerId}",
@@ -669,7 +671,8 @@ class EbaySellingService
                 ->withHeaders($this->commonHeaders())
                 ->put("{$this->inventoryBaseUrl()}/offer/{$offerId}", $offerBody);
 
-            if (! $response->ok()) {
+            // PUT /offer returns 204 No Content on success (not 200)
+            if (! $response->successful()) {
                 $this->logEbayApiError(
                     'upsert_offer_put',
                     "{$this->inventoryBaseUrl()}/offer/{$offerId}",
