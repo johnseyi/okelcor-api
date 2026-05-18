@@ -1,6 +1,8 @@
 # Session Handoff — Okelcor API
 Last updated: 2026-05-18 (session 24)
 
+---
+
 ## Session 24 — System Health Monitor (complete)
 
 **Phase done:** System Health, Vulnerability & Endpoint Monitor — backend only.
@@ -49,9 +51,125 @@ No new migrations — cache-only health snapshot.
 
 ---
 
-## eBay listing status (session 23) — EAN fix
+## Session 23c — Mandatory Admin 2FA + 5-Hour Session TTL (complete)
 
-**Root cause of session 23:** errorId 25002 "Das Feld EAN fehlt" — eBay DE category 10183 requires an EAN (European Article Number / barcode). Products table had no `ean` column.
+**Goal:** All admin users must complete 2FA setup before getting a session token. Sessions expire after 5 hours.
+
+**Architecture (bootstrapping problem solved):**
+Admins who have no 2FA can't call the protected 2FA-setup endpoints (they need a token, but can't get one without 2FA). Solution: login returns a short-lived `temp_token` (10-minute UUID in cache), and two new unauthenticated endpoints let them complete setup using that token.
+
+**Login flow — no 2FA configured:**
+1. `POST /api/v1/admin/login` — credentials valid, but no `two_factor_confirmed_at` → returns HTTP 200 with `requires_2fa_setup: true` + `data.temp_token` (UUID). No Sanctum token issued.
+2. `POST /api/v1/admin/2fa/setup/enable` — uses `temp_token`, generates TOTP secret, returns `secret + otpauth_uri`
+3. `POST /api/v1/admin/2fa/setup/confirm` — uses `temp_token + 6-digit code`, activates 2FA, issues full session token + recovery codes → HTTP 201
+
+**Login flow — 2FA already configured:**
+1. `POST /api/v1/admin/login` → `session_token` challenge (existing flow)
+2. `POST /api/v1/admin/login/2fa` → issues full session token
+
+**Session TTL:** 5 hours (300 minutes default). All token-issuing paths use:
+```php
+$ttl       = (int) config('auth.admin_session_ttl_minutes', 300);
+$expiresAt = now()->addMinutes($ttl);
+$token     = $admin->createToken('admin-token', ['*'], $expiresAt)->plainTextToken;
+```
+Override with `ADMIN_SESSION_TTL_MINUTES=300` in `.env`.
+
+**EnsureAdminTwoFactorEnabled middleware:** Always enforces (no bypass env flag). Returns HTTP 428 with `code: 'two_factor_required'`. Allows through: `/admin/me`, `/admin/logout`, `/admin/profile`, all `/admin/2fa/*`, all `/admin/security/*`.
+
+Grace period (staged rollout only): `ADMIN_2FA_GRACE_UNTIL=YYYY-MM-DD` in `.env` bypasses enforcement until that date.
+
+**Files changed:**
+- `app/Http/Controllers/Admin/AuthController.php` — no-2FA login path now issues `temp_token` instead of full token
+- `app/Http/Controllers/Admin/AdminTwoFactorController.php` — added `setupEnable()`, `setupConfirm()`, `formatUser()` methods
+- `app/Http/Controllers/Admin/AdminLoginTwoFactorController.php` — token creation now includes `$expiresAt`; response includes `expires_at`
+- `app/Http/Middleware/EnsureAdminTwoFactorEnabled.php` — removed `ADMIN_2FA_ENFORCED` env check; added grace period; HTTP 428
+- `config/auth.php` — removed `admin_2fa_enforced` key; added `admin_session_ttl_minutes`
+- `routes/api.php` — added `POST admin/2fa/setup/enable` and `POST admin/2fa/setup/confirm` (unauthenticated)
+
+**New .env key (optional):**
+```
+ADMIN_SESSION_TTL_MINUTES=300   # 5 hours — omit to accept default
+ADMIN_2FA_GRACE_UNTIL=          # leave blank for immediate enforcement
+```
+
+**Deploy steps (no migration needed):**
+```bash
+git reset --hard origin/main
+composer install --no-dev
+/opt/alt/php83/usr/bin/php artisan config:clear && /opt/alt/php83/usr/bin/php artisan config:cache
+/opt/alt/php83/usr/bin/php artisan route:cache
+```
+
+---
+
+## Session 23b — Trade Document Supersede + Order Financial Correction (complete)
+
+**Context:** Order OKL-548XDW had delivery fee entered as €2.50 instead of €2500.00 and a proforma invoice had already been issued. Required: correct the financials without destroying the audit trail.
+
+### Part 1 — Trade document supersede support
+
+**New DB columns** (`trade_documents` table):
+```
+superseded_at      TIMESTAMP NULL
+superseded_by_id   FK → admin_users (NULL on delete)
+supersede_reason   TEXT NULL
+```
+A superseded document keeps its PDF on disk and its row in the DB. It is hidden from customer-facing endpoints (they already filter `status='issued'` only). Admins can see it via the admin trade documents endpoint.
+
+**New endpoint:** `POST /api/v1/admin/orders/{orderId}/trade-documents/{documentId}/supersede`
+- Permission: `trade_documents.manage`
+- Only supersedable types: `proforma_invoice`, `commercial_invoice`
+- Only supersedes documents with `status='issued'`
+- Sets `status='superseded'`, `superseded_at`, `superseded_by_id`, `supersede_reason`
+- Logs `document_superseded` to order_logs
+
+### Part 2 — Order financial correction
+
+**New endpoint:** `PATCH /api/v1/admin/orders/{id}/financials`
+- Permission: `orders.update`
+- Validates `delivery_fee` (numeric, min:0, max:999999.99) + `reason`
+- Surgical recalculation: `new_total = old_total - old_delivery_cost + new_delivery_cost`
+- Updates `delivery_cost` and `total` atomically
+- Logs `financial_corrected` with old/new values to order_logs
+
+### Part 3 — One-time Artisan correction command
+
+```bash
+php artisan orders:correct-delivery-fee {ref} {amount} {--supersede-proforma} {--reason=} {--dry-run}
+```
+- `--dry-run`: shows what would change without touching DB
+- `--supersede-proforma`: automatically marks the current issued proforma as superseded
+- `--reason`: stored in both the supersede record and the order log
+
+**Files changed:**
+- `database/migrations/2026_05_18_134205_add_supersede_fields_to_trade_documents_table.php` (new)
+- `app/Models/TradeDocument.php` — added supersede fields to `$fillable`, `$casts`, and `supersededBy()` relation
+- `app/Http/Controllers/Admin/AdminTradeDocumentController.php` — added `supersede()` method; updated `formatDocument()`
+- `app/Http/Controllers/Admin/AdminOrderController.php` — added `patchFinancials()` method
+- `app/Console/Commands/CorrectOrderDeliveryFee.php` (new)
+- `routes/api.php` — two new routes added
+
+**Deploy steps:**
+```bash
+git reset --hard origin/main
+composer install --no-dev
+/opt/alt/php83/usr/bin/php artisan migrate --force
+/opt/alt/php83/usr/bin/php artisan config:clear && /opt/alt/php83/usr/bin/php artisan config:cache
+/opt/alt/php83/usr/bin/php artisan route:cache
+```
+
+**To correct OKL-548XDW on production:**
+```bash
+/opt/alt/php83/usr/bin/php artisan orders:correct-delivery-fee OKL-548XDW 2500 --supersede-proforma --reason="Delivery fee entered as 2.50 instead of 2500.00 — corrected" --dry-run
+# Review output, then run without --dry-run
+```
+
+---
+
+## Session 23 — eBay EAN fix (complete)
+
+**Root cause:** errorId 25002 "Das Feld EAN fehlt" — eBay DE category 10183 requires an EAN (European Article Number / barcode). Products table had no `ean` column.
 
 **Fix applied:**
 - Migration `2026_05_18_121827_add_ean_to_products_table.php` — adds nullable `ean` VARCHAR(20) column to products
@@ -60,7 +178,16 @@ No new migrations — cache-only health snapshot.
 - `EbaySellingService.syncInventory()` — same EAN logic
 - `EbaySellingService.diagnoseProduct()` — same EAN in Step D inventory PUT
 
-**Action required on production:**
+**If EAN "Does not apply" is rejected by eBay for category 10183:**
+- The `ean` column is ready — populate it via the admin product edit form or a bulk import
+- RAPID tyre EANs can be obtained from the supplier data sheet or barcode on the tyre sidewall
+
+**Files changed:**
+- `database/migrations/2026_05_18_121827_add_ean_to_products_table.php` (new)
+- `app/Models/Product.php`
+- `app/Services/EbaySellingService.php`
+
+**Deploy steps:**
 ```bash
 git reset --hard origin/main
 composer install --no-dev
@@ -70,24 +197,15 @@ composer install --no-dev
 ```
 Then test: `/opt/alt/php83/usr/bin/php artisan ebay:debug-product 235776 --publish`
 
-**If EAN "Does not apply" is rejected by eBay for category 10183:**
-- The `ean` column is ready — populate it via the admin product edit form or a bulk import
-- RAPID tyre EANs can be obtained from the supplier data sheet or barcode on the tyre sidewall
-
-**Files changed (session 23):**
-- `database/migrations/2026_05_18_121827_add_ean_to_products_table.php` (new)
-- `app/Models/Product.php`
-- `app/Services/EbaySellingService.php`
-
 ---
 
-**Chain of eBay bugs fixed in sessions 22–23 (all proven by diagnoseProduct diagnostic):**
+**Chain of eBay bugs fixed in sessions 20–23 (all proven by diagnoseProduct diagnostic):**
 1. Locale mismatch: `Content-Language: en-US` → inventory stored as `locale:en_US` → 25751 when POST /offer used EBAY_DE. Fix: `marketplaceLocale()` returns `de-DE` for EBAY_DE.
 2. `->ok()` false for HTTP 201: POST /offer returns 201 Created, not 200. Fix: `->successful()` (200-299).
 3. `->ok()` false for HTTP 204: PUT /offer and PUT inventory_item return 204. Fix: `->successful()` everywhere.
 4. Missing merchantLocationKey: eBay couldn't determine Item.Country for EBAY_DE. Fix: `ensureMerchantLocation()` auto-creates OKELCOR-MAIN location; `merchantLocationKey` added to offer body.
 5. English aspect names: EBAY_DE category 10183 requires German names (`Marke` not `Brand`, etc.). Fix: `buildAspects()` uses German names for EBAY_DE/AT/CH.
-6. Missing EAN: category 10183 requires EAN field. Fix: send `product.ean` (or "Does not apply" fallback). [this session]
+6. Missing EAN: category 10183 requires EAN field. Fix: send `product.ean` (or "Does not apply" fallback).
 
 ---
 
@@ -159,12 +277,17 @@ composer install --no-dev
 
 ---
 
-## Backup system
+## Backup system (scheduler wired — session 23a)
+
+The backup command existed since session 8 but was never connected to the Laravel scheduler. Confirmed and wired up in session 23a.
 
 **Commands available:**
 - `php artisan backup:okelcor` — creates `storage/app/backups/okelcor-backup-<timestamp>.zip` (DB dump + file paths)
 - `php artisan backup:status` — shows last backup time, size, archive list, disk space
 - `php artisan backup:test` — pre-flight checks (DB, mysqldump, ZipArchive, disk space, paths)
+
+**Files changed (session 23a):**
+- `routes/console.php` — added `Schedule::command('backup:okelcor')` with all options (was missing entirely; only `Artisan::command('inspire')` placeholder existed)
 
 **Schedule registered** (`routes/console.php`):
 ```php
