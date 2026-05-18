@@ -360,6 +360,7 @@ class EbaySellingService
                 'product'   => [
                     'title'     => $this->buildTitle($product),
                     'imageUrls' => $this->imageUrls($product),
+                    'ean'       => $product->ean ? [$product->ean] : ['Does not apply'],
                 ],
             ]);
 
@@ -636,6 +637,7 @@ class EbaySellingService
                 'description' => $this->buildDescription($product),
                 'imageUrls'   => $this->imageUrls($product),
                 'aspects'     => $this->buildAspects($product),
+                'ean'         => $product->ean ? [$product->ean] : ['Does not apply'],
             ],
         ];
 
@@ -1207,6 +1209,7 @@ class EbaySellingService
                 'description' => $this->buildDescription($product),
                 'imageUrls'   => $this->imageUrls($product),
                 'aspects'     => $this->buildAspects($product),
+                'ean'         => $product->ean ? [$product->ean] : ['Does not apply'],
             ],
         ];
 
