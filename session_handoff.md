@@ -1,5 +1,47 @@
 # Session Handoff — Okelcor API
-Last updated: 2026-05-18 (session 22)
+Last updated: 2026-05-18 (session 23)
+
+## eBay listing status (session 23) — EAN fix
+
+**Root cause of session 23:** errorId 25002 "Das Feld EAN fehlt" — eBay DE category 10183 requires an EAN (European Article Number / barcode). Products table had no `ean` column.
+
+**Fix applied:**
+- Migration `2026_05_18_121827_add_ean_to_products_table.php` — adds nullable `ean` VARCHAR(20) column to products
+- `Product::$fillable` — added `ean`
+- `EbaySellingService.upsertInventoryItem()` — sends `product.ean: [$product->ean]` if EAN is stored; falls back to `["Does not apply"]` (eBay GTIN exemption) when none is set
+- `EbaySellingService.syncInventory()` — same EAN logic
+- `EbaySellingService.diagnoseProduct()` — same EAN in Step D inventory PUT
+
+**Action required on production:**
+```bash
+git reset --hard origin/main
+composer install --no-dev
+/opt/alt/php83/usr/bin/php artisan migrate --force
+/opt/alt/php83/usr/bin/php artisan config:clear && /opt/alt/php83/usr/bin/php artisan config:cache
+/opt/alt/php83/usr/bin/php artisan route:cache
+```
+Then test: `/opt/alt/php83/usr/bin/php artisan ebay:debug-product 235776 --publish`
+
+**If EAN "Does not apply" is rejected by eBay for category 10183:**
+- The `ean` column is ready — populate it via the admin product edit form or a bulk import
+- RAPID tyre EANs can be obtained from the supplier data sheet or barcode on the tyre sidewall
+
+**Files changed (session 23):**
+- `database/migrations/2026_05_18_121827_add_ean_to_products_table.php` (new)
+- `app/Models/Product.php`
+- `app/Services/EbaySellingService.php`
+
+---
+
+**Chain of eBay bugs fixed in sessions 22–23 (all proven by diagnoseProduct diagnostic):**
+1. Locale mismatch: `Content-Language: en-US` → inventory stored as `locale:en_US` → 25751 when POST /offer used EBAY_DE. Fix: `marketplaceLocale()` returns `de-DE` for EBAY_DE.
+2. `->ok()` false for HTTP 201: POST /offer returns 201 Created, not 200. Fix: `->successful()` (200-299).
+3. `->ok()` false for HTTP 204: PUT /offer and PUT inventory_item return 204. Fix: `->successful()` everywhere.
+4. Missing merchantLocationKey: eBay couldn't determine Item.Country for EBAY_DE. Fix: `ensureMerchantLocation()` auto-creates OKELCOR-MAIN location; `merchantLocationKey` added to offer body.
+5. English aspect names: EBAY_DE category 10183 requires German names (`Marke` not `Brand`, etc.). Fix: `buildAspects()` uses German names for EBAY_DE/AT/CH.
+6. Missing EAN: category 10183 requires EAN field. Fix: send `product.ean` (or "Does not apply" fallback). [this session]
+
+---
 
 ## Project
 Laravel 13.2 / PHP 8.3 REST API for Okelcor B2B tyre wholesale.
