@@ -839,7 +839,33 @@ class EbaySellingService
 
     private function commonHeaders(): array
     {
-        return ['Content-Language' => 'en-US'];
+        return ['Content-Language' => $this->marketplaceLocale()];
+    }
+
+    private function marketplaceLocale(): string
+    {
+        // Maps eBay marketplace IDs to their required BCP-47 Content-Language values.
+        // eBay Inventory API stores items per-locale; POST /offer requires the item
+        // to exist in the locale matching the offer's marketplaceId.
+        $map = [
+            'EBAY_DE' => 'de-DE',
+            'EBAY_AT' => 'de-AT',
+            'EBAY_CH' => 'de-CH',
+            'EBAY_GB' => 'en-GB',
+            'EBAY_AU' => 'en-AU',
+            'EBAY_FR' => 'fr-FR',
+            'EBAY_IT' => 'it-IT',
+            'EBAY_ES' => 'es-ES',
+            'EBAY_NL' => 'nl-NL',
+            'EBAY_BE' => 'fr-BE',
+            'EBAY_PL' => 'pl-PL',
+            'EBAY_US' => 'en-US',
+            'EBAY_CA' => 'en-CA',
+        ];
+
+        $marketplaceId = config('services.ebay_sell.marketplace_id', 'EBAY_DE');
+
+        return $map[$marketplaceId] ?? 'de-DE';
     }
 
     // -------------------------------------------------------------------------
@@ -971,9 +997,10 @@ class EbaySellingService
         try {
             $token = $this->getAccessToken();
             $report['steps']['token'] = [
-                'status'         => 'pass',
-                'source'         => $this->tokenSource,
-                'marketplace_id' => config('services.ebay_sell.marketplace_id', 'EBAY_DE'),
+                'status'           => 'pass',
+                'source'           => $this->tokenSource,
+                'marketplace_id'   => config('services.ebay_sell.marketplace_id', 'EBAY_DE'),
+                'content_language' => $this->marketplaceLocale(),
             ];
         } catch (\Throwable $e) {
             $report['steps']['token'] = ['status' => 'fail', 'error' => $e->getMessage()];

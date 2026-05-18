@@ -93,9 +93,10 @@ class EbayDebugProduct extends Command
         $this->statusLine('token', $tok['status'] ?? 'fail');
 
         if (($tok['status'] ?? '') === 'pass') {
-            $this->line("  Source      : {$tok['source']}");
-            $this->line("  Marketplace : {$tok['marketplace_id']}");
-            $this->line('  Token value : [REDACTED]');
+            $this->line("  Source           : {$tok['source']}");
+            $this->line("  Marketplace      : {$tok['marketplace_id']}");
+            $this->line("  Content-Language : " . ($tok['content_language'] ?? 'not set') . "  ← must match marketplace locale");
+            $this->line('  Token value      : [REDACTED]');
         } else {
             $this->error('  ERROR: ' . ($tok['error'] ?? 'unknown'));
             $this->printFinalResult($report);
