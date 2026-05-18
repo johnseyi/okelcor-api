@@ -111,6 +111,39 @@ composer install --no-dev
 
 ---
 
+## Backup system
+
+**Commands available:**
+- `php artisan backup:okelcor` — creates `storage/app/backups/okelcor-backup-<timestamp>.zip` (DB dump + file paths)
+- `php artisan backup:status` — shows last backup time, size, archive list, disk space
+- `php artisan backup:test` — pre-flight checks (DB, mysqldump, ZipArchive, disk space, paths)
+
+**Schedule registered** (`routes/console.php`):
+```php
+Schedule::command('backup:okelcor')
+    ->dailyAt('02:00')
+    ->withoutOverlapping()
+    ->onOneServer()
+    ->appendOutputTo(storage_path('logs/backup-schedule.log'));
+```
+Output appends to `storage/logs/backup-schedule.log` on the server.
+
+**Server cron required** — add this once on Hostinger (cPanel → Cron Jobs):
+```
+* * * * * cd /home/u978121777/domains/okelcor.com/public_html/okelcor-api && /opt/alt/php83/usr/bin/php artisan schedule:run >> /dev/null 2>&1
+```
+Without this cron, the scheduler never fires and backups never run.
+
+**Config** (`config/backup.php`):
+- `BACKUP_ENABLED` — defaults to `true`; set `false` to disable without removing the command
+- `BACKUP_RETENTION_DAYS` — defaults to 14; prunes old archives after each run
+- `MYSQLDUMP_PATH` — auto-detected; set explicitly if mysqldump is not in PATH
+- Paths backed up: `storage/app/private`, `storage/app/public/invoices`, `storage/app/public/brands`, `storage/app/public/products`, `storage/app/public/promotions`, `storage/app/public/media`
+
+**Note:** `backup:test` on local shows DB + mysqldump failures — MySQL is not running locally. Both pass on the production server.
+
+---
+
 **Session 21 — eBay 502 diagnosis: category mismatch + error surfacing (no migrations):**
 
 **Root cause confirmed:** `EBAY_CATEGORY_ID=179680` is from **ebay.com (US)** (`ebay.com/b/Car-Truck-Tires/179680`) and is **NOT valid for EBAY_DE**. eBay rejects the offer create/update call with an API error. Backend returns 502 with the safe message but frontend was displaying a generic "eBay action failed" instead of reading the `message` field.
