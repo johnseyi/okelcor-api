@@ -1,5 +1,5 @@
 # Session Handoff — Okelcor API
-Last updated: 2026-05-18 (session 20)
+Last updated: 2026-05-18 (session 22)
 
 ## Project
 Laravel 13.2 / PHP 8.3 REST API for Okelcor B2B tyre wholesale.
@@ -34,6 +34,40 @@ composer install --no-dev
 /opt/alt/php83/usr/bin/php artisan config:cache
 /opt/alt/php83/usr/bin/php artisan route:cache
 ```
+
+**Session 22 — eBay error 25751 fix: inventory indexing race condition (no migrations):**
+
+**Root cause:** eBay returns error 25751 ("SKU not found for marketplace EBAY_DE") when `POST /offer` fires before eBay has finished indexing the just-PUT inventory item. This is an async race condition on eBay's side, not a config issue.
+
+**Fix applied:**
+- `EbaySellingService.createOrUpdateListing()`: now calls `waitForInventoryItem()` between `upsertInventoryItem()` and `upsertOffer()`. This GET-verifies the SKU is reachable (up to 3 attempts with 1 s gap), then throws a clear RuntimeException if still not available after all attempts.
+- `EbaySellingService`: applied `rawurlencode()` to SKU in URL path segments in `upsertInventoryItem()`, `syncInventory()`, `deleteListing()` — prevents 400 errors for SKUs containing spaces or special chars.
+- `EbaySellingService.diagnoseProduct()`: new public 6-step diagnostic method (validation → token → PUT inventory → GET verify → offer check → optional publish). Returns structured `$report` for the Artisan command.
+- `EbayListingController.safeError()`: added pattern for 25751 ('error 25751' / 'was not available after') → returns user-readable "retry in a few seconds" message.
+- Added `app/Console/Commands/EbayDebugProduct.php` — `php artisan ebay:debug-product {product_id} {--publish}` — runs full diagnostic and displays results in table format.
+
+**No .env changes needed for this session's fix** — the retry logic is automatic.
+
+**Files changed (session 22):**
+- `app/Services/EbaySellingService.php`
+- `app/Http/Controllers/Admin/EbayListingController.php`
+- `app/Console/Commands/EbayDebugProduct.php` (new)
+
+**Deploy steps (no migration needed):**
+```bash
+git reset --hard origin/main
+composer install --no-dev
+/opt/alt/php83/usr/bin/php artisan config:clear && /opt/alt/php83/usr/bin/php artisan config:cache
+/opt/alt/php83/usr/bin/php artisan route:cache
+```
+
+**Debug command usage (SSH on production):**
+```bash
+/opt/alt/php83/usr/bin/php artisan ebay:debug-product 235776
+/opt/alt/php83/usr/bin/php artisan ebay:debug-product 235776 --publish
+```
+
+---
 
 **Session 21 — eBay 502 diagnosis: category mismatch + error surfacing (no migrations):**
 
