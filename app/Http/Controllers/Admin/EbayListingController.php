@@ -192,9 +192,27 @@ class EbayListingController extends Controller
             : $fail('marketplace_id', 'Marketplace ID', 'EBAY_MARKETPLACE_ID is missing.');
 
         $categoryId = config('services.ebay_sell.category_id');
-        ! empty($categoryId)
-            ? $pass('category_id', 'Default category ID', "Category ID is set to {$categoryId}.")
-            : $fail('category_id', 'Default category ID', 'EBAY_CATEGORY_ID is missing.');
+        if (empty($categoryId)) {
+            $fail('category_id', 'Default category ID', 'EBAY_CATEGORY_ID is missing.');
+        } else {
+            $pass('category_id', 'Default category ID', "Category ID is set to {$categoryId}.");
+
+            // Cross-check: 179680 is an ebay.com (US) category and is NOT valid for EBAY_DE.
+            // eBay category IDs are marketplace-specific and are not portable.
+            $knownUsOnlyCategories = ['179680', '6030'];
+            if (
+                str_contains((string) $marketplaceId, 'DE') &&
+                in_array((string) $categoryId, $knownUsOnlyCategories, true)
+            ) {
+                $fail(
+                    'category_marketplace_mismatch',
+                    'Category / Marketplace match',
+                    "Category {$categoryId} is from ebay.com (US) and is NOT valid for {$marketplaceId}. "
+                        . "For car tyres on EBAY_DE use 10183 (PKW-Reifen); for truck/bus tyres use 10209 (LKW/Bus-Reifen). "
+                        . "Update EBAY_CATEGORY_ID in .env."
+                );
+            }
+        }
 
         // Business policies
         ! empty(config('services.ebay_sell.payment_policy_id'))
@@ -403,7 +421,8 @@ class EbayListingController extends Controller
 
             return response()->json(['message' => $safe], 422);
         } catch (\Throwable $e) {
-            $safe = $this->safeError($e);
+            $safe       = $this->safeError($e);
+            $ebayErrors = $this->extractEbayErrors($e);
 
             $product->update([
                 'ebay_status'     => 'error',
@@ -419,7 +438,10 @@ class EbayListingController extends Controller
                 'error_message' => $safe,
             ]);
 
-            return response()->json(['message' => $safe], 502);
+            return response()->json([
+                'data'    => ['ebay_errors' => $ebayErrors],
+                'message' => $safe,
+            ], 502);
         }
     }
 
@@ -456,7 +478,8 @@ class EbayListingController extends Controller
                 'message' => "eBay listing removed for SKU {$product->sku}.",
             ]);
         } catch (\Throwable $e) {
-            $safe = $this->safeError($e);
+            $safe       = $this->safeError($e);
+            $ebayErrors = $this->extractEbayErrors($e);
 
             $this->writeLog([
                 'product_id'    => $product->id,
@@ -467,7 +490,10 @@ class EbayListingController extends Controller
                 'error_message' => $safe,
             ]);
 
-            return response()->json(['message' => $safe], 502);
+            return response()->json([
+                'data'    => ['ebay_errors' => $ebayErrors],
+                'message' => $safe,
+            ], 502);
         }
     }
 
@@ -540,7 +566,8 @@ class EbayListingController extends Controller
 
             return response()->json(['message' => $safe], 422);
         } catch (\Throwable $e) {
-            $safe = $this->safeError($e);
+            $safe       = $this->safeError($e);
+            $ebayErrors = $this->extractEbayErrors($e);
 
             $product->update([
                 'ebay_status'     => 'error',
@@ -557,7 +584,10 @@ class EbayListingController extends Controller
                 'error_message' => $safe,
             ]);
 
-            return response()->json(['message' => $safe], 502);
+            return response()->json([
+                'data'    => ['ebay_errors' => $ebayErrors],
+                'message' => $safe,
+            ], 502);
         }
     }
 
@@ -755,6 +785,52 @@ class EbayListingController extends Controller
     }
 
     /**
+     * Extract eBay error objects from the raw exception message.
+     * EbaySellingService embeds the raw eBay JSON response body after the last ': '.
+     * Returns structured error array suitable for inclusion in API responses.
+     */
+    private function extractEbayErrors(\Throwable $e): array
+    {
+        $msg = $e->getMessage();
+
+        // Find the JSON portion: messages end with ": {json}" or ": [{json}]"
+        $jsonStart = strrpos($msg, ': {');
+        if ($jsonStart === false) {
+            $jsonStart = strrpos($msg, ': [');
+        }
+        if ($jsonStart === false) {
+            return [];
+        }
+
+        $json = substr($msg, $jsonStart + 2);
+
+        try {
+            $decoded = json_decode($json, true, 512, JSON_THROW_ON_ERROR);
+
+            if (isset($decoded['errors']) && is_array($decoded['errors'])) {
+                return array_map(fn ($err) => array_filter([
+                    'errorId'     => $err['errorId'] ?? null,
+                    'domain'      => $err['domain'] ?? null,
+                    'category'    => $err['category'] ?? null,
+                    'message'     => $err['message'] ?? null,
+                    'longMessage' => $err['longMessage'] ?? null,
+                    'parameters'  => $err['parameters'] ?? null,
+                ], fn ($v) => $v !== null), $decoded['errors']);
+            }
+
+            // OAuth token endpoint errors
+            if (isset($decoded['error'])) {
+                return [[
+                    'error'       => $decoded['error'],
+                    'description' => $decoded['error_description'] ?? null,
+                ]];
+            }
+        } catch (\Throwable) {}
+
+        return [];
+    }
+
+    /**
      * Map raw exception messages to safe, user-readable error strings.
      * Never leaks internal stack traces or sensitive config values.
      */
@@ -766,8 +842,20 @@ class EbayListingController extends Controller
             return 'eBay seller account is not connected. Use GET /admin/ebay/auth-url to connect first.';
         }
 
-        if (str_contains($msg, 'token refresh failed')) {
+        if (str_contains($msg, 'token refresh failed') || str_contains($msg, 'invalid_grant')) {
             return 'eBay authentication failed — the seller account may need to be reconnected via /admin/ebay/auth-url.';
+        }
+
+        // eBay REST API returns errorId 1001 / "Invalid access token" on HTTP 401
+        // This triggers when a cached access token has expired before the cache TTL
+        if (
+            str_contains($msg, '"errorId":1001') ||
+            str_contains($msg, 'Invalid access token') ||
+            str_contains($msg, 'invalid_token') ||
+            str_contains($msg, 'IAF token') ||
+            str_contains($msg, 'token is expired')
+        ) {
+            return 'eBay access token is invalid or expired. Disconnect and reconnect the seller account via /admin/ebay/auth-url.';
         }
 
         if (str_contains($msg, 'policy IDs')) {
@@ -809,6 +897,65 @@ class EbayListingController extends Controller
         if (str_contains($msg, 'invalid image URL') || str_contains($msg, 'absolute HTTP')) {
             return 'Product has an invalid image URL — eBay requires absolute HTTPS image URLs.';
         }
+
+        // ─── eBay API error-code patterns ────────────────────────────────────────
+        // These match against eBay errorId values or message text embedded in the
+        // exception by EbaySellingService. Checked BEFORE the generic operation
+        // patterns so specific errors get specific messages.
+
+        $marketplace = config('services.ebay_sell.marketplace_id', 'EBAY_DE');
+
+        // Category not valid for this marketplace (e.g. US category used on EBAY_DE)
+        if (
+            preg_match('/"errorId"\s*:\s*(25002|25003|21917182|95500)\b/', $msg) ||
+            str_contains($msg, 'not enabled for listing') ||
+            str_contains($msg, 'category is not valid') ||
+            (str_contains($msg, 'Category') && str_contains($msg, 'not supported'))
+        ) {
+            $categoryId = config('services.ebay_sell.category_id', '?');
+            return "eBay category ID {$categoryId} is not valid for marketplace {$marketplace}. "
+                . "Update EBAY_CATEGORY_ID with a category that belongs to {$marketplace}. "
+                . "For car tyres on EBAY_DE use 10183 (PKW-Reifen); for truck/bus tyres use 10209 (LKW/Bus-Reifen). "
+                . "Run GET /admin/ebay/readiness to check all pre-listing config.";
+        }
+
+        // Business policy doesn't belong to this marketplace
+        if (
+            preg_match('/"errorId"\s*:\s*(20400|20402|20403|20404|25004|25005)\b/', $msg) ||
+            str_contains($msg, 'policy does not belong') ||
+            str_contains($msg, 'policy not found') ||
+            str_contains($msg, 'Business policy') ||
+            (str_contains($msg, 'policy') && str_contains($msg, 'not valid'))
+        ) {
+            return "One or more eBay business policy IDs are not valid for {$marketplace}. "
+                . "Fetch the correct IDs from GET /admin/ebay/policies and update "
+                . "EBAY_FULFILLMENT_POLICY_ID, EBAY_PAYMENT_POLICY_ID, EBAY_RETURN_POLICY_ID in .env.";
+        }
+
+        // Seller does not have permission to list in this category
+        if (
+            str_contains($msg, 'Insufficient permissions') ||
+            str_contains($msg, 'not authorized to list') ||
+            str_contains($msg, 'seller account does not have') ||
+            (str_contains($msg, 'permission') && str_contains($msg, 'category'))
+        ) {
+            return "eBay seller account does not have permission to list in this category. "
+                . "Check seller account standing and category access on eBay Seller Hub.";
+        }
+
+        // eBay cannot fetch/verify the product image URL
+        if (
+            str_contains($msg, 'image') && (
+                str_contains($msg, 'not accessible') ||
+                str_contains($msg, 'could not be downloaded') ||
+                str_contains($msg, 'invalid image')
+            )
+        ) {
+            return "eBay could not access the product image. "
+                . "Ensure the image URL is publicly reachable over HTTPS and returns a valid JPEG/PNG. "
+                . "Check that the storage symlink is set up on the server (php artisan storage:link).";
+        }
+        // ─────────────────────────────────────────────────────────────────────────
 
         if (str_contains($msg, 'inventory item upsert failed')) {
             return 'eBay rejected the product data (inventory item). Check the product SKU, title length, and image URLs.';

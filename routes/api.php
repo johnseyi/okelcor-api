@@ -485,14 +485,10 @@ Route::prefix('v1')->group(function () {
             Route::get('ebay/listings', [EbayListingController::class, 'listings']);
             Route::post('ebay/sync-all', [EbayListingController::class, 'syncAll']);
             Route::get('ebay/logs', [EbayListingController::class, 'logs']);
-            // Canonical URLs (per frontend spec)
             Route::post('products/{id}/ebay/list', [EbayListingController::class, 'listProduct']);
             Route::patch('products/{id}/ebay/update', [EbayListingController::class, 'updateProduct']);
             Route::delete('products/{id}/ebay/remove', [EbayListingController::class, 'removeListing']);
             Route::post('products/{id}/ebay/refresh-status', [EbayListingController::class, 'refreshStatus']);
-            // Legacy aliases (backward compat)
-            Route::post('products/{id}/list-on-ebay', [EbayListingController::class, 'listProduct']);
-            Route::delete('products/{id}/ebay-listing', [EbayListingController::class, 'removeListing']);
         });
     });
 });

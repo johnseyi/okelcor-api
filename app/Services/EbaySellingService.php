@@ -11,6 +11,9 @@ use Illuminate\Support\Facades\Storage;
 
 class EbaySellingService
 {
+    /** Tracks which token path was used on the most recent getAccessToken() call. */
+    private string $tokenSource = 'unknown';
+
     private const SCOPES = [
         'https://api.ebay.com/oauth/api_scope/sell.inventory',
         'https://api.ebay.com/oauth/api_scope/sell.inventory.readonly',
@@ -71,12 +74,14 @@ class EbaySellingService
     public function getAccessToken(): string
     {
         if ($cached = Cache::get($this->cacheKey())) {
+            $this->tokenSource = 'cache';
             return $cached;
         }
 
         $record = EbayToken::active()->latest()->first();
 
         if ($record) {
+            $this->tokenSource = 'db_token_' . $record->id;
             return $this->callRefreshGrant($record->refresh_token, $record);
         }
 
@@ -84,12 +89,14 @@ class EbaySellingService
         $envToken = config('services.ebay_sell.refresh_token');
 
         if (empty($envToken)) {
+            $this->tokenSource = 'none';
             throw new \RuntimeException(
                 'eBay seller account is not connected. ' .
                 'Visit GET /api/v1/admin/ebay/auth-url to authorise the seller account.'
             );
         }
 
+        $this->tokenSource = 'env_fallback';
         Log::warning('eBay: using .env EBAY_REFRESH_TOKEN fallback — reconnect via OAuth to migrate tokens to DB.');
 
         return $this->callRefreshGrant($envToken, null);
@@ -114,10 +121,15 @@ class EbaySellingService
             ]);
 
         if (! $response->ok()) {
+            $parsedErrors = $this->parseEbayErrors($response->body());
+
             Log::error('eBay token refresh failed.', [
-                'action' => 'ebay_token_refresh_failed',
-                'status' => $response->status(),
-                'body'   => $response->body(),
+                'action'       => 'ebay_token_refresh_failed',
+                'api_family'   => 'Sell API (REST) — OAuth token endpoint',
+                'endpoint'     => $this->oauthUrl(),
+                'token_source' => $this->tokenSource,
+                'http_status'  => $response->status(),
+                'ebay_errors'  => $parsedErrors,
             ]);
 
             throw new \RuntimeException('eBay user token refresh failed: ' . $response->body());
@@ -273,6 +285,14 @@ class EbaySellingService
             ->get("{$this->inventoryBaseUrl()}/offer", ['sku' => $sku]);
 
         if (! $response->ok()) {
+            $this->logEbayApiError(
+                'get_listing_status',
+                "{$this->inventoryBaseUrl()}/offer",
+                $response->status(),
+                $response->body(),
+                ['sku' => $sku]
+            );
+
             throw new \RuntimeException(
                 "eBay getListingStatus failed for SKU {$sku}: " . $response->body()
             );
@@ -328,6 +348,14 @@ class EbaySellingService
             ]);
 
         if (! $response->ok()) {
+            $this->logEbayApiError(
+                'sync_inventory',
+                "{$this->inventoryBaseUrl()}/inventory_item/{$product->sku}",
+                $response->status(),
+                $response->body(),
+                ['sku' => $product->sku, 'product_id' => $product->id]
+            );
+
             throw new \RuntimeException("eBay syncInventory failed for SKU {$product->sku}: " . $response->body());
         }
     }
@@ -351,6 +379,16 @@ class EbaySellingService
             ->get("{$this->inventoryBaseUrl()}/offer", ['sku' => $sku]);
 
         if (! $existing->ok() || empty($existing->json('offers'))) {
+            if ($existing->failed()) {
+                $this->logEbayApiError(
+                    'update_listing_fetch_offer',
+                    "{$this->inventoryBaseUrl()}/offer",
+                    $existing->status(),
+                    $existing->body(),
+                    ['sku' => $sku, 'product_id' => $product->id]
+                );
+            }
+
             throw new \RuntimeException(
                 "No existing eBay offer found for SKU {$sku}. Use 'List on eBay' to create and publish a listing first."
             );
@@ -366,6 +404,14 @@ class EbaySellingService
             ->put("{$this->inventoryBaseUrl()}/offer/{$offerId}", $this->buildOfferBody($product));
 
         if (! $response->ok()) {
+            $this->logEbayApiError(
+                'update_listing_put_offer',
+                "{$this->inventoryBaseUrl()}/offer/{$offerId}",
+                $response->status(),
+                $response->body(),
+                ['sku' => $sku, 'product_id' => $product->id, 'offer_id' => $offerId]
+            );
+
             throw new \RuntimeException("eBay offer update failed for SKU {$sku}: " . $response->body());
         }
 
@@ -406,6 +452,14 @@ class EbaySellingService
             ->put("{$this->inventoryBaseUrl()}/offer/{$offerId}", $this->buildOfferBody($product));
 
         if (! $response->ok()) {
+            $this->logEbayApiError(
+                'sync_full_put_offer',
+                "{$this->inventoryBaseUrl()}/offer/{$offerId}",
+                $response->status(),
+                $response->body(),
+                ['sku' => $sku, 'product_id' => $product->id, 'offer_id' => $offerId]
+            );
+
             throw new \RuntimeException("eBay offer update (syncFull) failed for SKU {$sku}: " . $response->body());
         }
     }
@@ -424,6 +478,13 @@ class EbaySellingService
             ->get("{$this->inventoryBaseUrl()}/inventory_item", ['limit' => 1]);
 
         if (! $response->ok()) {
+            $this->logEbayApiError(
+                'ping_connection',
+                "{$this->inventoryBaseUrl()}/inventory_item",
+                $response->status(),
+                $response->body()
+            );
+
             throw new \RuntimeException(
                 "eBay connection test failed (HTTP {$response->status()}): " . $response->body()
             );
@@ -499,6 +560,14 @@ class EbaySellingService
             ->delete("{$this->inventoryBaseUrl()}/inventory_item/{$sku}");
 
         if (! $deleteResponse->ok() && $deleteResponse->status() !== 404) {
+            $this->logEbayApiError(
+                'delete_inventory_item',
+                "{$this->inventoryBaseUrl()}/inventory_item/{$sku}",
+                $deleteResponse->status(),
+                $deleteResponse->body(),
+                ['sku' => $sku]
+            );
+
             throw new \RuntimeException("eBay deleteListing failed for SKU {$sku}: " . $deleteResponse->body());
         }
 
@@ -555,6 +624,14 @@ class EbaySellingService
 
         // 200 = updated, 204 = created — both are success
         if (! in_array($response->status(), [200, 204])) {
+            $this->logEbayApiError(
+                'upsert_inventory_item',
+                "{$this->inventoryBaseUrl()}/inventory_item/{$product->sku}",
+                $response->status(),
+                $response->body(),
+                ['sku' => $product->sku, 'product_id' => $product->id]
+            );
+
             throw new \RuntimeException("eBay inventory item upsert failed for SKU {$product->sku}: " . $response->body());
         }
     }
@@ -576,6 +653,14 @@ class EbaySellingService
                 ->put("{$this->inventoryBaseUrl()}/offer/{$offerId}", $offerBody);
 
             if (! $response->ok()) {
+                $this->logEbayApiError(
+                    'upsert_offer_put',
+                    "{$this->inventoryBaseUrl()}/offer/{$offerId}",
+                    $response->status(),
+                    $response->body(),
+                    ['sku' => $product->sku, 'product_id' => $product->id, 'offer_id' => $offerId]
+                );
+
                 throw new \RuntimeException("eBay offer update failed for SKU {$product->sku}: " . $response->body());
             }
 
@@ -588,6 +673,14 @@ class EbaySellingService
             ->post("{$this->inventoryBaseUrl()}/offer", $offerBody);
 
         if (! $response->ok()) {
+            $this->logEbayApiError(
+                'upsert_offer_post',
+                "{$this->inventoryBaseUrl()}/offer",
+                $response->status(),
+                $response->body(),
+                ['sku' => $product->sku, 'product_id' => $product->id]
+            );
+
             throw new \RuntimeException("eBay offer create failed for SKU {$product->sku}: " . $response->body());
         }
 
@@ -601,6 +694,14 @@ class EbaySellingService
             ->post("{$this->inventoryBaseUrl()}/offer/{$offerId}/publish");
 
         if (! $response->ok()) {
+            $this->logEbayApiError(
+                'publish_offer',
+                "{$this->inventoryBaseUrl()}/offer/{$offerId}/publish",
+                $response->status(),
+                $response->body(),
+                ['offer_id' => $offerId]
+            );
+
             throw new \RuntimeException("eBay offer publish failed for offerId {$offerId}: " . $response->body());
         }
 
@@ -723,5 +824,67 @@ class EbaySellingService
     private function commonHeaders(): array
     {
         return ['Content-Language' => 'en-US'];
+    }
+
+    /**
+     * Log a structured error record for any failed eBay Sell API call.
+     * Never logs token values. Includes operation, endpoint, HTTP status,
+     * parsed eBay error codes, and the token source that was used.
+     *
+     * @param array $context Extra context: sku, product_id, offer_id, etc.
+     */
+    private function logEbayApiError(
+        string $operation,
+        string $endpoint,
+        int $httpStatus,
+        string $rawBody,
+        array $context = []
+    ): void {
+        Log::error('eBay Sell API call failed.', array_merge([
+            'api_family'   => 'Sell API (REST)',
+            'operation'    => $operation,
+            'endpoint'     => $endpoint,
+            'http_status'  => $httpStatus,
+            'token_source' => $this->tokenSource,
+            'ebay_errors'  => $this->parseEbayErrors($rawBody),
+        ], $context));
+    }
+
+    /**
+     * Parse eBay REST API error response body into a structured array.
+     * Handles both the standard {"errors":[...]} shape and OAuth error shape.
+     * Returns a raw snippet for non-JSON bodies.
+     */
+    private function parseEbayErrors(string $body): array
+    {
+        if (empty($body)) {
+            return [];
+        }
+
+        try {
+            $decoded = json_decode($body, true, 512, JSON_THROW_ON_ERROR);
+
+            if (isset($decoded['errors']) && is_array($decoded['errors'])) {
+                return array_map(fn ($e) => [
+                    'errorId'  => $e['errorId'] ?? null,
+                    'domain'   => $e['domain'] ?? null,
+                    'category' => $e['category'] ?? null,
+                    'message'  => $e['message'] ?? null,
+                ], $decoded['errors']);
+            }
+
+            // OAuth token endpoint uses 'error' key
+            if (isset($decoded['error'])) {
+                return [[
+                    'error'       => $decoded['error'],
+                    'description' => $decoded['error_description'] ?? null,
+                ]];
+            }
+        } catch (\Throwable) {
+            // Not valid JSON — return a safe raw snippet
+            return [['raw' => mb_substr($body, 0, 300)]];
+        }
+
+        return [];
     }
 }

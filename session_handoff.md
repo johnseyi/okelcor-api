@@ -1,5 +1,5 @@
 # Session Handoff — Okelcor API
-Last updated: 2026-05-15 (session 19)
+Last updated: 2026-05-18 (session 20)
 
 ## Project
 Laravel 13.2 / PHP 8.3 REST API for Okelcor B2B tyre wholesale.
@@ -34,6 +34,80 @@ composer install --no-dev
 /opt/alt/php83/usr/bin/php artisan config:cache
 /opt/alt/php83/usr/bin/php artisan route:cache
 ```
+
+**Session 21 — eBay 502 diagnosis: category mismatch + error surfacing (no migrations):**
+
+**Root cause confirmed:** `EBAY_CATEGORY_ID=179680` is from **ebay.com (US)** (`ebay.com/b/Car-Truck-Tires/179680`) and is **NOT valid for EBAY_DE**. eBay rejects the offer create/update call with an API error. Backend returns 502 with the safe message but frontend was displaying a generic "eBay action failed" instead of reading the `message` field.
+
+**Correct EBAY_DE category IDs for tyres:**
+- `10183` — PKW-Reifen (passenger car tyres)
+- `10209` — LKW/Bus-Reifen (truck/bus/TBR tyres)
+
+**Action required on production — update .env:**
+```
+EBAY_CATEGORY_ID=10183   # for PCR tyres
+```
+Also verify EBAY_FULFILLMENT_POLICY_ID / EBAY_PAYMENT_POLICY_ID / EBAY_RETURN_POLICY_ID were fetched with EBAY_DE marketplace set. If policies were configured while wrong marketplace was active, re-fetch from GET /admin/ebay/policies after updating the category.
+
+**Backend changes (session 21):**
+- `EbayListingController`: added `extractEbayErrors(\Throwable $e): array` — parses eBay JSON response body embedded in exception messages; returns `[{errorId, domain, category, message, longMessage, parameters}]`
+- `EbayListingController`: `listProduct`, `updateProduct`, `removeListing` 502 responses now include `data.ebay_errors[]` — frontend can read exact eBay error codes and messages
+- `EbayListingController.safeError()`: added specific detection before generic patterns:
+  - Category invalid for marketplace (errorIds 25002/25003/21917182/95500 + text patterns) → names the bad category ID and suggests EBAY_DE alternatives (10183/10209)
+  - Policy not found / doesn't belong to marketplace (errorIds 20400/20402/25004/25005 + text) → directs to /admin/ebay/policies
+  - Seller permission error → directs to Seller Hub
+  - Image not accessible → mentions storage symlink
+- `EbayListingController.readiness()`: added `category_marketplace_mismatch` check — fails if EBAY_MARKETPLACE_ID contains "DE" and EBAY_CATEGORY_ID is a known US-only category (179680, 6030); names the correct EBAY_DE alternatives
+
+**Files changed (session 21):**
+- `app/Http/Controllers/Admin/EbayListingController.php`
+
+**Deploy steps (no migration needed):**
+```bash
+git reset --hard origin/main
+composer install --no-dev
+/opt/alt/php83/usr/bin/php artisan config:clear && /opt/alt/php83/usr/bin/php artisan config:cache
+/opt/alt/php83/usr/bin/php artisan route:cache
+```
+Then on production update .env: `EBAY_CATEGORY_ID=10183`
+
+---
+
+**Session 20 — eBay error 932 diagnosis + backend hardening (no migrations):**
+
+**Root cause confirmed:** Error 932 is a Trading API (XML/SOAP) error code. The backend uses only the Sell REST API — it cannot emit error 932. The source is the frontend `lib/ebay.ts` calling the old Trading API with an expired `EBAY_ACCESS_TOKEN` env var. Frontend audit and fix is a separate task.
+
+**Backend gaps closed:**
+- `EbaySellingService`: added `$tokenSource` property, set on every `getAccessToken()` call (`cache` | `db_token_{id}` | `env_fallback` | `none`)
+- `EbaySellingService`: added `logEbayApiError()` private helper — called before every `throw` in API methods; logs `api_family=Sell API (REST)`, `operation`, `endpoint`, `http_status`, `token_source`, `ebay_errors` (parsed from response body)
+- `EbaySellingService`: added `parseEbayErrors()` private helper — parses eBay REST `{"errors":[{"errorId":...}]}` and OAuth `{"error":"invalid_grant"}` shapes; returns raw snippet for non-JSON
+- `EbayListingController.safeError()`: added detection for eBay REST 401 patterns (`errorId 1001`, `Invalid access token`, `invalid_token`, `IAF token`, `token is expired`, `invalid_grant`) → returns reconnect-prompt message
+- `routes/api.php`: removed legacy route aliases `POST products/{id}/list-on-ebay` and `DELETE products/{id}/ebay-listing` — canonical routes are the only paths now
+
+**Route count: 172** (was 174 — two legacy aliases removed)
+
+**How to confirm 932 source on production:**
+```bash
+tail -n 200 storage/logs/laravel.log | grep "eBay"
+```
+If error 932 appears, it will NOT be in Laravel logs (backend never calls Trading API).
+Check browser Network tab: if the failed request URL is a Next.js `/api/admin/...` route handler
+(not `/api/v1/admin/...`), the Trading API call is happening client-side in `lib/ebay.ts`.
+
+**Files changed (session 20):**
+- `app/Services/EbaySellingService.php` — token source tracking, structured error logging before every throw, `logEbayApiError()` + `parseEbayErrors()` helpers
+- `app/Http/Controllers/Admin/EbayListingController.php` — `safeError()` extended with eBay REST 401 patterns and `invalid_grant`
+- `routes/api.php` — legacy `list-on-ebay` and `ebay-listing` aliases removed
+
+**Deploy steps (no migration needed):**
+```bash
+git reset --hard origin/main
+composer install --no-dev
+/opt/alt/php83/usr/bin/php artisan config:clear && /opt/alt/php83/usr/bin/php artisan config:cache
+/opt/alt/php83/usr/bin/php artisan route:cache
+```
+
+---
 
 **Session 19 — Policies endpoint verification (no code changes):**
 
