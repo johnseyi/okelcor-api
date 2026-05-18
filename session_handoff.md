@@ -1,5 +1,53 @@
 # Session Handoff — Okelcor API
-Last updated: 2026-05-18 (session 23)
+Last updated: 2026-05-18 (session 24)
+
+## Session 24 — System Health Monitor (complete)
+
+**Phase done:** System Health, Vulnerability & Endpoint Monitor — backend only.
+
+**What was built:**
+
+| Artifact | Path |
+|---|---|
+| Health controller | `app/Http/Controllers/Admin/SystemHealthController.php` |
+| CLI command | `app/Console/Commands/SystemHealthCommand.php` |
+| Routes | `routes/api.php` — GET `admin/system/health`, GET `admin/system/errors` |
+| Hourly schedule | `routes/console.php` — `system:health --snapshot` hourly |
+| Exception logging | `bootstrap/app.php` — structured CRITICAL log on every unhandled exception |
+
+**Endpoints:**
+- `GET /api/v1/admin/system/health` — 6 check groups (application, database, backups, mail, security, endpoints); overall status: `pass | warning | fail | critical`; caches snapshot 90 min; permission: `security.view`
+- `GET /api/v1/admin/system/errors?limit=N` — merged recent errors from `admin_security_events`, `failed_jobs`, and parsed `laravel.log`; permission: `security.view`
+
+**CLI:**
+```bash
+php artisan system:health                # full colored report
+php artisan system:health --group=security  # single group
+php artisan system:health --errors       # recent errors
+php artisan system:health --errors --limit=50
+php artisan system:health --snapshot    # run + store cache
+```
+
+**Exception handler** (`bootstrap/app.php`):
+Every unhandled exception (excluding 4xx HTTP types) now emits a `[unhandled_exception]` CRITICAL log entry with: `exception`, `file:line`, `route`, `method`, `url`, `ip`, `user_id`, `request_id` (from `X-Request-Id` header or auto-generated).
+
+**Deploy steps:**
+```bash
+git reset --hard origin/main
+composer install --no-dev
+/opt/alt/php83/usr/bin/php artisan config:clear
+/opt/alt/php83/usr/bin/php artisan config:cache
+/opt/alt/php83/usr/bin/php artisan route:cache
+```
+No new migrations — cache-only health snapshot.
+
+**Verify on server:**
+```bash
+/opt/alt/php83/usr/bin/php artisan system:health
+/opt/alt/php83/usr/bin/php artisan route:list | grep system
+```
+
+---
 
 ## eBay listing status (session 23) — EAN fix
 
