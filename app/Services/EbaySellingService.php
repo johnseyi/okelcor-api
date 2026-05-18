@@ -359,7 +359,8 @@ class EbaySellingService
                 ],
             ]);
 
-        if (! $response->ok()) {
+        // PUT inventory_item returns 204 No Content on update (not 200)
+        if (! $response->successful()) {
             $this->logEbayApiError(
                 'sync_inventory',
                 $endpoint,
@@ -683,12 +684,12 @@ class EbaySellingService
             return $offerId;
         }
 
-        // Create new offer
+        // Create new offer — eBay returns HTTP 201 Created on success (not 200)
         $response = Http::withToken($token)
             ->withHeaders($this->commonHeaders())
             ->post("{$this->inventoryBaseUrl()}/offer", $offerBody);
 
-        if (! $response->ok()) {
+        if (! $response->successful()) {
             $this->logEbayApiError(
                 'upsert_offer_post',
                 "{$this->inventoryBaseUrl()}/offer",
@@ -1122,7 +1123,8 @@ class EbaySellingService
                 $offerId      = $offerTestR->json('offerId') ?? null;
             }
 
-            $offerOk = $offerTestR->ok();
+            // POST /offer returns 201 Created on success; PUT /offer returns 200
+            $offerOk = $offerTestR->successful();
 
             $report['steps']['offer_create_test'] = [
                 'status'          => $offerOk ? 'pass' : 'fail',
