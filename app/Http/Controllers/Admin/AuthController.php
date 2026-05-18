@@ -61,7 +61,7 @@ class AuthController extends Controller
 
         RateLimiter::clear($key);
 
-        // 2FA challenge — do not issue a token yet
+        // 2FA challenge — admin has 2FA enabled, issue TOTP challenge (no full token yet)
         if ($admin->hasTwoFactorEnabled()) {
             $sessionToken = (string) Str::uuid();
             Cache::put('2fa_challenge:' . $sessionToken, $admin->id, now()->addMinutes(5));
@@ -75,24 +75,28 @@ class AuthController extends Controller
             ]);
         }
 
-        $admin->tokens()->delete();
-        $token = $admin->createToken('admin-token')->plainTextToken;
+        // 2FA setup required — admin has not yet enabled 2FA.
+        // Do NOT issue a full session token. Return a short-lived setup token instead.
+        // The admin must complete 2FA setup via POST /admin/2fa/setup/confirm before
+        // receiving a full session token.
+        $setupToken = (string) Str::uuid();
+        Cache::put('2fa_setup:' . $setupToken, $admin->id, now()->addMinutes(10));
 
-        $admin->update([
-            'last_login_at' => now(),
-            'last_login_ip' => $ip,
-        ]);
-
-        AdminAuditLogger::info('login_success', 'Admin login successful (no 2FA)', $request, $admin);
-        AdminLoginHistory::record($admin, true, false, $request);
+        AdminAuditLogger::warning(
+            'admin_2fa_required',
+            'Admin login blocked — 2FA setup required before session is issued',
+            $request,
+            $admin
+        );
 
         return response()->json([
+            'requires_2fa_setup' => true,
             'data' => [
-                'token' => $token,
-                'user'  => $this->formatUser($admin->fresh()),
+                'temp_token' => $setupToken,
+                'user'       => $this->formatUser($admin),
             ],
-            'message' => 'success',
-        ]);
+            'message' => 'Two-factor authentication is required before accessing the admin panel. Please set up 2FA to continue.',
+        ], 200);
     }
 
     public function logout(Request $request): JsonResponse

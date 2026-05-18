@@ -128,15 +128,25 @@ return [
     | Admin 2FA Enforcement
     |--------------------------------------------------------------------------
     |
-    | When admin_2fa_enforced is true, admin users who have not confirmed 2FA
-    | are blocked from all admin routes except /me, /logout, /2fa/*, /security/*.
+    | 2FA is mandatory for all admin users. Admins without 2FA enabled cannot
+    | obtain a full session token — they are redirected through a setup flow.
     |
     | Set admin_2fa_grace_until to a date (YYYY-MM-DD) to allow a grace period
-    | before enforcement kicks in. Leave null to enforce immediately.
+    | before the EnsureAdminTwoFactorEnabled middleware starts blocking requests.
+    | Leave null to enforce immediately (production default).
     |
     */
+    'admin_2fa_grace_until'     => env('ADMIN_2FA_GRACE_UNTIL'),
 
-    'admin_2fa_enforced'    => env('ADMIN_2FA_ENFORCED', false),
-    'admin_2fa_grace_until' => env('ADMIN_2FA_GRACE_UNTIL'),
+    /*
+    |--------------------------------------------------------------------------
+    | Admin Session TTL
+    |--------------------------------------------------------------------------
+    |
+    | Admin Sanctum tokens expire after this many minutes. Set
+    | ADMIN_SESSION_TTL_MINUTES in .env to override. Default: 300 (5 hours).
+    |
+    */
+    'admin_session_ttl_minutes' => (int) env('ADMIN_SESSION_TTL_MINUTES', 300),
 
 ];

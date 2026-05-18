@@ -202,6 +202,12 @@ Route::prefix('v1')->group(function () {
     Route::post('admin/login', [AuthController::class, 'login']);
     Route::post('admin/login/2fa', AdminLoginTwoFactorController::class);
 
+    // Mandatory 2FA setup flow — unauthenticated (no Sanctum token yet).
+    // Used by admins who have never enabled 2FA. They receive a temp_token at
+    // login and must complete setup here before a full session is issued.
+    Route::post('admin/2fa/setup/enable',  [AdminTwoFactorController::class, 'setupEnable']);
+    Route::post('admin/2fa/setup/confirm', [AdminTwoFactorController::class, 'setupConfirm']);
+
     // -------------------------------------------------------------------------
     // eBay OAuth callback — PUBLIC (no Sanctum; eBay redirects browser here)
     // State param is the CSRF guard (verified against Cache in controller).

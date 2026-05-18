@@ -2,20 +2,25 @@
 
 namespace App\Http\Middleware;
 
+use Carbon\Carbon;
 use Closure;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
 
 /**
- * When ADMIN_2FA_ENFORCED=true (and any grace period has passed), block admin
- * users who have not confirmed 2FA from reaching protected routes.
+ * Block admin users who have not confirmed 2FA from reaching protected routes.
  *
- * Always allows: /admin/me, /admin/logout, /admin/2fa/*, /admin/security/*
- * so users can still check status, enable 2FA, and log out.
+ * 2FA is mandatory for all admin users. Admins who log in without 2FA configured
+ * receive a temp_token and must complete the setup flow before a session is issued.
+ * This middleware is the belt-and-suspenders check in case any legacy tokens exist.
  *
- * To enable enforcement, set in .env:
- *   ADMIN_2FA_ENFORCED=true
- *   ADMIN_2FA_GRACE_UNTIL=2026-06-01   # optional — enforcement begins after this date
+ * Always allows:
+ *   - /admin/me, /admin/logout, /admin/profile
+ *   - /admin/2fa/*  (enable, confirm, disable, setup/*)
+ *   - /admin/security/*
+ *
+ * Optional grace period: set ADMIN_2FA_GRACE_UNTIL=YYYY-MM-DD in .env to allow
+ * a transitional window during staged rollouts. Leave unset for immediate enforcement.
  */
 class EnsureAdminTwoFactorEnabled
 {
@@ -32,16 +37,15 @@ class EnsureAdminTwoFactorEnabled
 
     public function handle(Request $request, Closure $next): Response
     {
-        if (! config('auth.admin_2fa_enforced', false)) {
-            return $next($request);
-        }
-
+        // Grace period — bypass enforcement until the configured date (staged rollouts)
         $graceUntil = config('auth.admin_2fa_grace_until');
-        if ($graceUntil && now()->lt(\Carbon\Carbon::parse($graceUntil)->endOfDay())) {
+        if ($graceUntil && now()->lt(Carbon::parse($graceUntil)->endOfDay())) {
             return $next($request);
         }
 
         $user = $request->user();
+
+        // No user (unauthenticated) or user already has 2FA — let through
         if (! $user || $user->hasTwoFactorEnabled()) {
             return $next($request);
         }
@@ -59,8 +63,8 @@ class EnsureAdminTwoFactorEnabled
         }
 
         return response()->json([
-            'message' => 'Two-factor authentication is required. Please enable 2FA before continuing.',
-            'requires_2fa_setup' => true,
-        ], 403);
+            'message' => 'Two-factor authentication is required before accessing the admin panel. Please enable 2FA to continue.',
+            'code'    => 'two_factor_required',
+        ], 428);
     }
 }

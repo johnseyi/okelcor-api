@@ -120,7 +120,9 @@ class AdminLoginTwoFactorController extends Controller
         RateLimiter::clear($key);
 
         $admin->tokens()->delete();
-        $token = $admin->createToken('admin-token')->plainTextToken;
+        $ttl       = (int) config('auth.admin_session_ttl_minutes', 300);
+        $expiresAt = now()->addMinutes($ttl);
+        $token     = $admin->createToken('admin-token', ['*'], $expiresAt)->plainTextToken;
 
         $admin->update([
             'last_login_at' => now(),
@@ -132,8 +134,9 @@ class AdminLoginTwoFactorController extends Controller
 
         return response()->json([
             'data' => [
-                'token' => $token,
-                'user'  => $this->formatUser($admin->fresh()),
+                'token'      => $token,
+                'expires_at' => $expiresAt->toIso8601String(),
+                'user'       => $this->formatUser($admin->fresh()),
             ],
             'message' => 'Login successful.',
         ]);

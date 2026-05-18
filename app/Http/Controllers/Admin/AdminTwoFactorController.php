@@ -3,11 +3,15 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Models\AdminLoginHistory;
 use App\Models\AdminUser;
 use App\Services\AdminAuditLogger;
+use App\Support\AdminPermissions;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Str;
 use PragmaRX\Google2FA\Google2FA;
 
@@ -208,6 +212,189 @@ class AdminTwoFactorController extends Controller
             'data'    => ['recovery_codes' => $recoveryCodes],
             'message' => 'Recovery codes regenerated. Save them now — they will not be shown again.',
         ]);
+    }
+
+    /**
+     * POST /api/v1/admin/2fa/setup/enable  (unauthenticated — temp_token only)
+     *
+     * First step of the mandatory setup flow for admins who do not yet have 2FA.
+     * Generates a new TOTP secret and returns the OTPAuth URI for QR rendering.
+     * Authenticated via a 10-minute temp_token issued by the login endpoint.
+     */
+    public function setupEnable(Request $request): JsonResponse
+    {
+        $request->validate(['temp_token' => ['required', 'string', 'uuid']]);
+
+        $ip       = $request->ip();
+        $cacheKey = '2fa_setup:' . $request->temp_token;
+        $adminId  = Cache::get($cacheKey);
+
+        if (! $adminId) {
+            return response()->json([
+                'message' => 'Setup session has expired. Please log in again.',
+            ], 401);
+        }
+
+        $admin = AdminUser::find($adminId);
+
+        if (! $admin || ! $admin->is_active) {
+            Cache::forget($cacheKey);
+            return response()->json(['message' => 'Authentication failed.'], 401);
+        }
+
+        if ($admin->hasTwoFactorEnabled()) {
+            Cache::forget($cacheKey);
+            return response()->json(['message' => 'Two-factor authentication is already enabled.'], 409);
+        }
+
+        $secret = $this->google2fa->generateSecretKey();
+
+        $admin->update([
+            'two_factor_secret'       => encrypt($secret),
+            'two_factor_confirmed_at' => null,
+        ]);
+
+        $otpauthUri = $this->google2fa->getQRCodeUrl(
+            config('app.name', 'Okelcor'),
+            $admin->email,
+            $secret
+        );
+
+        Log::info('Admin mandatory 2FA setup initiated', [
+            'admin_id' => $admin->id,
+            'email'    => $admin->email,
+            'ip'       => $ip,
+        ]);
+
+        return response()->json([
+            'data'    => [
+                'secret'      => $secret,
+                'otpauth_uri' => $otpauthUri,
+            ],
+            'message' => 'Scan the QR code with your authenticator app, then confirm with a valid 6-digit code.',
+        ]);
+    }
+
+    /**
+     * POST /api/v1/admin/2fa/setup/confirm  (unauthenticated — temp_token only)
+     *
+     * Second step of the mandatory setup flow. Verifies the TOTP code, activates
+     * 2FA on the account, generates recovery codes, and issues a full session token.
+     * This is the only path that issues a token to an admin who had no 2FA.
+     */
+    public function setupConfirm(Request $request): JsonResponse
+    {
+        $request->validate([
+            'temp_token' => ['required', 'string', 'uuid'],
+            'code'       => ['required', 'string', 'digits:6'],
+        ]);
+
+        $ip       = $request->ip();
+        $rateKey  = 'admin-2fa-setup:' . $ip;
+        $cacheKey = '2fa_setup:' . $request->temp_token;
+
+        if (RateLimiter::tooManyAttempts($rateKey, 5)) {
+            $seconds = RateLimiter::availableIn($rateKey);
+            return response()->json([
+                'message' => "Too many failed attempts. Try again in {$seconds} seconds.",
+            ], 429);
+        }
+
+        $adminId = Cache::get($cacheKey);
+
+        if (! $adminId) {
+            return response()->json([
+                'message' => 'Setup session has expired. Please log in again.',
+            ], 401);
+        }
+
+        $admin = AdminUser::find($adminId);
+
+        if (! $admin || ! $admin->is_active || ! $admin->two_factor_secret) {
+            Cache::forget($cacheKey);
+            return response()->json(['message' => 'Authentication failed.'], 401);
+        }
+
+        if ($admin->hasTwoFactorEnabled()) {
+            Cache::forget($cacheKey);
+            return response()->json(['message' => 'Two-factor authentication is already enabled.'], 409);
+        }
+
+        try {
+            $secret = decrypt($admin->two_factor_secret);
+        } catch (\Throwable $e) {
+            Log::error('[2FA setup] Failed to decrypt secret', [
+                'admin_id' => $admin->id,
+                'error'    => $e->getMessage(),
+            ]);
+            return response()->json(['message' => 'Setup failed. Please log in and try again.'], 500);
+        }
+
+        if (! $this->google2fa->verifyKey($secret, $request->code)) {
+            RateLimiter::hit($rateKey, 60);
+            Log::warning('[2FA setup] Invalid TOTP code during mandatory setup', [
+                'admin_id' => $admin->id,
+                'ip'       => $ip,
+            ]);
+            return response()->json(['message' => 'The provided code is invalid.'], 422);
+        }
+
+        // ── Activate 2FA ────────────────────────────────────────────────────
+        $recoveryCodes = $this->generateRecoveryCodes();
+
+        $admin->update([
+            'two_factor_recovery_codes' => encrypt(json_encode($recoveryCodes)),
+            'two_factor_confirmed_at'   => now(),
+        ]);
+
+        // ── Clean up setup session ────────────────────────────────────────
+        Cache::forget($cacheKey);
+        RateLimiter::clear($rateKey);
+
+        // ── Issue full session token ──────────────────────────────────────
+        $admin->tokens()->delete();
+        $ttl       = (int) config('auth.admin_session_ttl_minutes', 300);
+        $expiresAt = now()->addMinutes($ttl);
+        $token     = $admin->createToken('admin-token', ['*'], $expiresAt)->plainTextToken;
+
+        $admin->update([
+            'last_login_at' => now(),
+            'last_login_ip' => $ip,
+        ]);
+
+        AdminAuditLogger::info('admin_2fa_enabled', '2FA mandatory setup completed — full session issued', $request, $admin);
+        AdminLoginHistory::record($admin, true, true, $request);
+
+        return response()->json([
+            'data' => [
+                'token'          => $token,
+                'expires_at'     => $expiresAt->toIso8601String(),
+                'user'           => $this->formatUser($admin->fresh()),
+                'recovery_codes' => $recoveryCodes,
+            ],
+            'message' => 'Two-factor authentication enabled. Save your recovery codes — they will not be shown again. Login successful.',
+        ], 201);
+    }
+
+    // -------------------------------------------------------------------------
+
+    private function formatUser(AdminUser $u): array
+    {
+        return [
+            'id'                    => $u->id,
+            'name'                  => $u->name,
+            'first_name'            => $u->first_name,
+            'last_name'             => $u->last_name,
+            'display_name'          => $u->display_name,
+            'email'                 => $u->email,
+            'role'                  => $u->role,
+            'role_label'            => AuthController::roleLabel($u->role),
+            'last_login_at'         => $u->last_login_at?->toIso8601String(),
+            'must_change_password'  => (bool) $u->must_change_password,
+            'two_factor_enabled'    => $u->hasTwoFactorEnabled(),
+            'two_factor_enabled_at' => $u->two_factor_confirmed_at?->toIso8601String(),
+            'permissions'           => AdminPermissions::for($u->role),
+        ];
     }
 
     // -------------------------------------------------------------------------
