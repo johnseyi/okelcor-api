@@ -23,12 +23,16 @@ class TradeDocument extends Model
         'issued_by',
         'issued_at',
         'sent_at',
+        'superseded_at',
+        'superseded_by_id',
+        'supersede_reason',
     ];
 
     protected $casts = [
-        'issued_at' => 'datetime',
-        'sent_at'   => 'datetime',
-        'file_size' => 'integer',
+        'issued_at'      => 'datetime',
+        'sent_at'        => 'datetime',
+        'superseded_at'  => 'datetime',
+        'file_size'      => 'integer',
     ];
 
     protected $hidden = [
@@ -44,5 +48,10 @@ class TradeDocument extends Model
     public function issuedBy(): BelongsTo
     {
         return $this->belongsTo(AdminUser::class, 'issued_by');
+    }
+
+    public function supersededBy(): BelongsTo
+    {
+        return $this->belongsTo(AdminUser::class, 'superseded_by_id');
     }
 }

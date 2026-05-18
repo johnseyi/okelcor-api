@@ -402,6 +402,76 @@ class AdminTradeDocumentController extends Controller
     }
 
     /**
+     * POST /api/v1/admin/orders/{id}/trade-documents/{documentId}/supersede
+     *
+     * Mark a generated trade document as superseded (e.g. wrong delivery fee).
+     * The original PDF is preserved for audit. A new document can then be regenerated.
+     * Only generated types (proforma/commercial_invoice/packing_list/delivery_note) are supersedable.
+     * Only status=issued documents may be superseded.
+     */
+    public function supersede(Request $request, int $orderId, int $documentId): JsonResponse
+    {
+        $order    = Order::findOrFail($orderId);
+        $document = TradeDocument::where('id', $documentId)
+            ->where('order_id', $order->id)
+            ->firstOrFail();
+
+        $admin = $request->user();
+
+        $request->validate([
+            'reason' => ['required', 'string', 'min:5', 'max:1000'],
+        ]);
+
+        $supersedable = ['proforma', 'commercial_invoice', 'packing_list', 'delivery_note'];
+
+        if (! in_array($document->type, $supersedable, true)) {
+            return response()->json([
+                'message' => 'Only generated documents (proforma, commercial invoice, packing list, delivery note) can be superseded.',
+            ], 422);
+        }
+
+        if ($document->status !== 'issued') {
+            return response()->json([
+                'message' => "Document is already '{$document->status}' and cannot be superseded again.",
+            ], 422);
+        }
+
+        $document->update([
+            'status'           => 'superseded',
+            'superseded_at'    => now(),
+            'superseded_by_id' => $admin?->id,
+            'supersede_reason' => $request->input('reason'),
+        ]);
+
+        try {
+            OrderLog::create([
+                'order_id'         => $order->id,
+                'order_ref'        => $order->ref,
+                'admin_user_id'    => $admin?->id,
+                'admin_user_email' => $admin?->email,
+                'action'           => 'document_superseded',
+                'old_value'        => $document->number,
+                'new_value'        => 'superseded',
+                'notes'            => 'Document superseded: ' . ($document->number ?? $document->type)
+                    . '. Reason: ' . $request->input('reason'),
+                'ip_address'       => $request->ip(),
+                'created_at'       => now(),
+            ]);
+        } catch (\Throwable $e) {
+            Log::warning('OrderLog write failed (document supersede)', [
+                'order_ref'   => $order->ref,
+                'document_id' => $document->id,
+                'error'       => $e->getMessage(),
+            ]);
+        }
+
+        return response()->json([
+            'data'    => $this->formatDocument($document->refresh()),
+            'message' => "Document {$document->number} marked as superseded. You can now regenerate a corrected document.",
+        ]);
+    }
+
+    /**
      * DELETE /api/v1/admin/trade-documents/{id}
      *
      * Delete an uploaded shipment document.
@@ -521,6 +591,9 @@ class AdminTradeDocumentController extends Controller
             'issued_by'         => $d->issued_by,
             'issued_at'         => $d->issued_at?->toIso8601String(),
             'sent_at'           => $d->sent_at?->toIso8601String(),
+            'superseded_at'     => $d->superseded_at?->toIso8601String(),
+            'superseded_by_id'  => $d->superseded_by_id,
+            'supersede_reason'  => $d->supersede_reason,
             'created_at'        => $d->created_at?->toIso8601String(),
             'updated_at'        => $d->updated_at?->toIso8601String(),
         ];

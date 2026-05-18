@@ -268,6 +268,52 @@ class AdminOrderController extends Controller
         ]);
     }
 
+    /**
+     * PATCH /api/v1/admin/orders/{id}/financials
+     *
+     * Correct a financial field on an order (e.g. wrong delivery fee entered at checkout).
+     * Recalculates total as: old_total − old_delivery_cost + new_delivery_cost.
+     * Always requires a reason for the audit log.
+     */
+    public function patchFinancials(Request $request, int $id): JsonResponse
+    {
+        $request->validate([
+            'delivery_fee' => ['required', 'numeric', 'min:0', 'max:999999.99'],
+            'reason'       => ['required', 'string', 'min:5', 'max:1000'],
+        ]);
+
+        $order          = Order::findOrFail($id);
+        $oldDeliveryCost = (float) $order->delivery_cost;
+        $oldTotal        = (float) $order->total;
+        $newDeliveryCost = (float) $request->input('delivery_fee');
+
+        // Surgical recalculation: swap only the delivery cost component
+        $newTotal = round($oldTotal - $oldDeliveryCost + $newDeliveryCost, 2);
+
+        $order->update([
+            'delivery_cost' => $newDeliveryCost,
+            'total'         => $newTotal,
+        ]);
+
+        $this->writeLog($request, $order, 'financial_corrected', [
+            'old_value' => "delivery_cost={$oldDeliveryCost}, total={$oldTotal}",
+            'new_value' => "delivery_cost={$newDeliveryCost}, total={$newTotal}",
+            'notes'     => $request->input('reason'),
+        ]);
+
+        return response()->json([
+            'data' => [
+                'id'               => $order->id,
+                'order_ref'        => $order->ref,
+                'delivery_cost'    => (float) $order->delivery_cost,
+                'total'            => (float) $order->total,
+                'old_delivery_cost' => $oldDeliveryCost,
+                'old_total'         => $oldTotal,
+            ],
+            'message' => 'Order financials updated successfully.',
+        ]);
+    }
+
     // -------------------------------------------------------------------------
     // Logging helpers
     // -------------------------------------------------------------------------

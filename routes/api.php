@@ -349,6 +349,7 @@ Route::prefix('v1')->group(function () {
             Route::post('orders/import', [OrderImportController::class, 'import']);
             Route::put('orders/{id}', [AdminOrderController::class, 'update']);
             Route::patch('orders/{id}/status', [AdminOrderController::class, 'updateStatus']);
+            Route::patch('orders/{id}/financials', [AdminOrderController::class, 'patchFinancials']);
             Route::post('orders/{id}/shipment-events', [AdminOrderShipmentEventController::class, 'store']);
             Route::put('orders/{id}/shipment-events/{event}', [AdminOrderShipmentEventController::class, 'update']);
             Route::delete('orders/{id}/shipment-events/{event}', [AdminOrderShipmentEventController::class, 'destroy']);
@@ -406,6 +407,7 @@ Route::prefix('v1')->group(function () {
             Route::post('orders/{id}/generate-delivery-note', [AdminTradeDocumentController::class, 'generateDeliveryNote']);
             Route::post('orders/{id}/trade-documents/upload', [AdminTradeDocumentController::class, 'uploadShipmentDocument']);
             Route::get('orders/{id}/trade-documents', [AdminTradeDocumentController::class, 'indexForOrder']);
+            Route::post('orders/{orderId}/trade-documents/{documentId}/supersede', [AdminTradeDocumentController::class, 'supersede']);
             Route::get('trade-documents/{id}/download', [AdminTradeDocumentController::class, 'download']);
             Route::post('trade-documents/{id}/send-email', [AdminTradeDocumentController::class, 'sendEmail']);
             Route::delete('trade-documents/{id}', [AdminTradeDocumentController::class, 'destroy']);
